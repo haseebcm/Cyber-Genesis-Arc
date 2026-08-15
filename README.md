@@ -1,9 +1,12 @@
 # H¹¹ Cyber Genesis Architecture (H¹¹-CGA)
 
+[![Author: Mohamed Haseeb C M](https://img.shields.io/badge/author-Mohamed%20Haseeb%20C%20M-blue.svg)](https://github.com/haseebcm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Architecture: v0.1](https://img.shields.io/badge/architecture-v0.1-purple.svg)](#)
 
+> **Created & Designed by Mohamed Haseeb C M**
+>
 > **A state-space cybersecurity architecture in which digital systems are continuously represented as measurable security states, divergence from authorized baselines is quantified, progression toward security limits is evaluated, active domains are selectively constrained, high-risk states are prioritized for convergence, and protected execution is governed through adaptive security boundaries and validated control loops.**
 
 ---
@@ -273,15 +276,23 @@ h11_cga/
 
 ---
 
+## Author & Creator
+
+**Mohamed Haseeb C M** ([@haseebcm](https://github.com/haseebcm))
+
+---
+
 ## Citation
 
 If you use H¹¹-CGA in your research, please cite:
 
 ```bibtex
 @software{h11_cga,
+  author = {Mohamed Haseeb C M},
   title = {H¹¹ Cyber Genesis Architecture},
   version = {0.1.0},
   description = {A state-space cybersecurity architecture derived from the H¹¹ intelligence framework},
+  url = {https://github.com/haseebcm/Cyber-Genesis-Arc},
   license = {MIT}
 }
 ```

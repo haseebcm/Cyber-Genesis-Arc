@@ -10,7 +10,7 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
-    {name = "H11 Research"},
+    {name = "Mohamed Haseeb C M"},
 ]
 keywords = ["cybersecurity", "state-space", "convergence", "architecture", "h11"]
 classifiers = [
