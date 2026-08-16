@@ -38,7 +38,17 @@ from h11_cga.benchmarks import (
     BenchmarkReport,
 )
 
-__version__ = '0.3.0'
+from h11_cga.license import (
+    LicenseManager,
+    LicenseTier,
+    FeatureFlag,
+)
+
+from h11_cga.server import (
+    ControlPlaneServer,
+)
+
+__version__ = '1.0.0'
 
 __all__ = [
     'SecurityState',
@@ -79,4 +89,8 @@ __all__ = [
     'RedTeamBenchmarkEngine',
     'ScenarioResult',
     'BenchmarkReport',
+    'LicenseManager',
+    'LicenseTier',
+    'FeatureFlag',
+    'ControlPlaneServer',
 ]

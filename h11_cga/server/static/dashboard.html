@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>H¹¹-CGA — Cyber Genesis Command Center</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: #111827;
+            --border-color: #1f293d;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --accent-cyan: #06b6d4;
+            --accent-magenta: #ec4899;
+            --status-green: #10b981;
+            --status-amber: #f59e0b;
+            --status-red: #ef4444;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+
+        .title-group h1 {
+            margin: 0;
+            font-size: 24px;
+            letter-spacing: 1px;
+            color: #ffffff;
+        }
+
+        .title-group p {
+            margin: 5px 0 0 0;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .status-badge {
+            padding: 8px 18px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+            letter-spacing: 1px;
+            background: #064e3b;
+            color: #34d399;
+            border: 1px solid #059669;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .card h3 {
+            margin-top: 0;
+            font-size: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--accent-cyan);
+            border-bottom: 1px solid #1f2937;
+            padding-bottom: 10px;
+        }
+
+        .metric-big {
+            font-size: 36px;
+            font-weight: 700;
+            font-family: 'Courier New', Courier, monospace;
+            color: #ffffff;
+            margin: 10px 0;
+        }
+
+        .dim-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+
+        .dim-bar-bg {
+            flex-grow: 1;
+            height: 8px;
+            background: #1f2937;
+            border-radius: 4px;
+            margin: 0 12px;
+            overflow: hidden;
+        }
+
+        .dim-bar-fill {
+            height: 100%;
+            background: var(--accent-cyan);
+            width: 100%;
+            transition: width 0.3s ease;
+        }
+
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        button {
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            background: var(--accent-cyan);
+            color: #000000;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #1f2937;
+        }
+
+        th {
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title-group">
+            <h1>H¹¹ CYBER GENESIS COMMAND CENTER</h1>
+            <p>State-Space Convergence Security Architecture — Live Operator Control Plane</p>
+        </div>
+        <div id="statusBadge" class="status-badge">PERMITTED</div>
+    </div>
+
+    <div class="grid-container">
+        <!-- Panel 1: Master Equation & Key Metrics -->
+        <div class="card">
+            <h3>Master Cyber Genesis Equation G_c(t)</h3>
+            <div id="genesisValue" class="metric-big">+1.0000</div>
+            <p style="font-size:12px; color:var(--text-muted);">Continuation Condition: Π_c=1 ∧ H_c<0 ∧ CCI_c<1.0</p>
+            
+            <div style="margin-top:20px;">
+                <div class="dim-row"><span>Divergence Magnitude (DR_c):</span><strong id="drValue">0.0000</strong></div>
+                <div class="dim-row"><span>HSA Singularity (H_c):</span><strong id="hsaValue">-1.0000</strong></div>
+                <div class="dim-row"><span>HSA Singularity Zone:</span><strong id="hsaZone">CONTROLLED</strong></div>
+                <div class="dim-row"><span>Remaining Buffer (B_c):</span><strong id="bufferValue">1.0000</strong></div>
+                <div class="dim-row"><span>Cascade Collapse Index (CCI):</span><strong id="cciValue">0.0000</strong></div>
+            </div>
+        </div>
+
+        <!-- Panel 2: 11-Dimensional MCC State Vector -->
+        <div class="card">
+            <h3>11-D MCC Security State Vector X_c(t)</h3>
+            <div id="dimContainer">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+
+        <!-- Panel 3: Attack Injection & Domain Nullification -->
+        <div class="card">
+            <h3>Live Attack Injection Console</h3>
+            <p style="font-size:12px; color:var(--text-muted);">Simulate real-time multi-dimensional attacks:</p>
+            <div class="btn-group">
+                <button onclick="injectAttack('identity_compromise')">Identity Attack</button>
+                <button onclick="injectAttack('privilege_escalation')">Privilege Escalation</button>
+                <button onclick="injectAttack('ddos')">DDoS SYN Flood</button>
+                <button onclick="injectAttack('zero_day')">Zero-Day Exploit</button>
+                <button onclick="injectAttack('insider_threat')">Insider Threat</button>
+                <button onclick="injectAttack('lateral_movement')">Lateral Movement</button>
+            </div>
+
+            <h3 style="margin-top:25px;">Prioritized Response Actions (ΔCR)</h3>
+            <table>
+                <thead>
+                    <tr><th>Urgency</th><th>Action</th><th>Target</th></tr>
+                </thead>
+                <tbody id="actionsTable">
+                    <tr><td colspan="3" style="color:var(--text-muted);">No urgent actions required.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const dims = ["Identity", "Authorization", "Network", "Data", "Compute", "Memory", "Execution", "Resource", "Trust", "Governance", "Recovery"];
+        
+        function initDimBars() {
+            const container = document.getElementById('dimContainer');
+            container.innerHTML = '';
+            dims.forEach((d, idx) => {
+                container.innerHTML += `
+                    <div class="dim-row">
+                        <span style="width:90px;">${d}</span>
+                        <div class="dim-bar-bg"><div id="bar-${idx}" class="dim-bar-fill" style="width:100%"></div></div>
+                        <span id="val-${idx}" style="width:40px; text-align:right;">1.00</span>
+                    </div>
+                `;
+            });
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/v1/status');
+                const data = await res.json();
+                
+                document.getElementById('statusBadge').innerText = data.status || 'PERMITTED';
+                document.getElementById('genesisValue').innerText = (data.genesis_value >= 0 ? '+' : '') + (data.genesis_value || 1.0).toFixed(4);
+                document.getElementById('drValue').innerText = (data.dr_value || 0).toFixed(4);
+                document.getElementById('hsaValue').innerText = (data.hsa_coordinate >= 0 ? '+' : '') + (data.hsa_coordinate || -1.0).toFixed(4);
+                document.getElementById('hsaZone').innerText = data.hsa_zone || 'CONTROLLED';
+                document.getElementById('bufferValue').innerText = (data.security_buffer || 1.0).toFixed(4);
+                document.getElementById('cciValue').innerText = (data.cci_value || 0).toFixed(4);
+
+                if (data.state_vector) {
+                    data.state_vector.forEach((v, idx) => {
+                        const pct = Math.max(0, Math.min(100, v * 100));
+                        const fill = document.getElementById(`bar-${idx}`);
+                        const valText = document.getElementById(`val-${idx}`);
+                        if (fill) fill.style.width = pct + '%';
+                        if (valText) valText.innerText = v.toFixed(2);
+                    });
+                }
+
+                const actionsBody = document.getElementById('actionsTable');
+                if (data.recommended_actions && data.recommended_actions.length > 0) {
+                    actionsBody.innerHTML = data.recommended_actions.slice(0, 4).map(a => `
+                        <tr>
+                            <td style="color:${a.urgency === 'CRITICAL' ? 'var(--status-red)' : 'var(--status-amber)'}">${a.urgency}</td>
+                            <td>${a.action_type}</td>
+                            <td>${a.target}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    actionsBody.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted);">No urgent actions required.</td></tr>';
+                }
+
+            } catch (err) {
+                console.error("Error fetching CGA status:", err);
+            }
+        }
+
+        async function injectAttack(attackName) {
+            await fetch('/api/v1/attack', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({attack: attackName, severity: 0.7})
+            });
+            fetchStatus();
+        }
+
+        initDimBars();
+        fetchStatus();
+        setInterval(fetchStatus, 1000);
+    </script>
+</body>
+</html>

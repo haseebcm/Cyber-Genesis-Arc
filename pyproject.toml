@@ -33,6 +33,7 @@ dependencies = [
 
 [project.scripts]
 h11-monitor = "h11_cga.cli:main"
+h11-server = "h11_cga.cli_server:main"
 
 [project.optional-dependencies]
 dev = [
