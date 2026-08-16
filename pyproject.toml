@@ -28,7 +28,11 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24.0",
+    "psutil>=5.9.0",
 ]
+
+[project.scripts]
+h11-monitor = "h11_cga.cli:main"
 
 [project.optional-dependencies]
 dev = [

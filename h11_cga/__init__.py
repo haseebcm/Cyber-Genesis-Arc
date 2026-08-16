@@ -15,7 +15,16 @@ from h11_cga.orchestrator import CyberGenesisEngine
 from h11_cga.core.transformation_matrix import TransformationMatrix
 from h11_cga.core.cyber_genesis_equation import CyberGenesisEquation
 
-__version__ = '0.1.0'
+from h11_cga.adapters import (
+    BaseTelemetryAdapter,
+    SystemAdapter,
+    KubernetesAdapter,
+    EBPFNetworkProbe,
+    LogAdapter,
+    TelemetryIngestionHub,
+)
+
+__version__ = '0.2.0'
 
 __all__ = [
     'SecurityState',
@@ -42,4 +51,10 @@ __all__ = [
     'CyberGenesisEngine',
     'TransformationMatrix',
     'CyberGenesisEquation',
+    'BaseTelemetryAdapter',
+    'SystemAdapter',
+    'KubernetesAdapter',
+    'EBPFNetworkProbe',
+    'LogAdapter',
+    'TelemetryIngestionHub',
 ]

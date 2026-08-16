@@ -124,11 +124,37 @@ SENSE → DIVERGE → LIMIT → CONVERGE → ENCRYPT
 
 ---
 
+## Phase 2: Telemetry Normalization Adapters (VIE)
+
+H¹¹-CGA includes production-grade **Virtual Interface Engine (VIE) Adapters** in `h11_cga.adapters` to ingest, scale, and normalize real-world metrics, container states, network flows, and log trails into the 11-dimensional MCC Security State Vector:
+
+| Adapter | Source | Key Metrics Mapped to 11-D Vector |
+|---------|--------|------------------------------------|
+| **`SystemAdapter`** | Host OS (`psutil`/`/proc`) | CPU utilization (`Compute`), RAM/swap (`Memory`), disk I/O (`Data`), open sockets (`Network`), running processes (`Execution`), active logins (`Identity`), uptime stability (`Trust`). |
+| **`KubernetesAdapter`** | Container / K8s Cluster | Pod restarts & CrashLoops (`Recovery`/`Execution`), API latency (`Governance`), 401/403 unauthorized calls (`Authorization`), resource quotas (`Resource`). |
+| **`EBPFNetworkProbe`** | Linux eBPF / Socket Flows | SYN flood DDoS ratios (`Network`), unauthorized egress connection attempts (`Network`/`Authorization`), port scan bursts (`Execution`). |
+| **`LogAdapter`** | Syslog / Auth / JSON Trails | Parses SSH auth failures, root session escalations, kernel OOM killers, segfaults, and JSON audit events into `SecurityEvent` objects with 11-D impact vectors. |
+| **`TelemetryIngestionHub`** | Multi-Source Hub | Manages and aggregates metrics from all registered active adapters, merging raw dimension values and event feeds into unified `TelemetryInput` streams. |
+
+### Live Host Monitoring Daemon (`h11-monitor`)
+
+Run live host OS telemetry monitoring directly from your command line:
+
+```bash
+# Monitor live host metrics continuously
+h11-monitor
+
+# Run monitor for 30 seconds with 0.5s polling interval
+h11-monitor --duration 30 --interval 0.5
+```
+
+---
+
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/h11-cga.git
-cd h11-cga
+git clone https://github.com/haseebcm/Cyber-Genesis-Arc.git
+cd Cyber-Genesis-Arc
 pip install -e ".[dev]"
 ```
 
@@ -255,6 +281,15 @@ h11_cga/
 ├── types.py                 # All type definitions
 ├── orchestrator.py          # Main control loop engine
 ├── dcr_engine.py            # ΔCR response prioritization
+├── cli.py                   # Command-line live host monitor daemon (h11-monitor)
+├── adapters/                # Telemetry Normalization Adapters (VIE)
+│   ├── __init__.py          # Adapters exports
+│   ├── base.py              # BaseTelemetryAdapter interface
+│   ├── system_adapter.py    # Host OS metric collector (psutil/proc)
+│   ├── k8s_adapter.py       # Kubernetes & container telemetry normalizer
+│   ├── ebpf_probe.py        # Linux eBPF network socket flow probe
+│   ├── log_adapter.py       # Syslog, Auth, & Audit trail parser
+│   └── hub.py               # TelemetryIngestionHub multi-source aggregator
 ├── core/
 │   ├── mcc.py               # MCC Security State Space
 │   ├── dsa.py               # DSA Directional Divergence
