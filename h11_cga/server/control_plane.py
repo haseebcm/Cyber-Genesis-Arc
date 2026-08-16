@@ -123,6 +123,10 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
                 for a in assessment.recommended_actions
             ]
 
+            from h11_cga.core.advanced import StateIntegrityProver
+            prover = StateIntegrityProver()
+            signature = prover.sign_state(assessment.current_state)
+
             data = {
                 "tick": engine.get_dashboard().get("tick", 0),
                 "status": assessment.status.value,
@@ -136,6 +140,7 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
                 "state_vector": [float(x) for x in assessment.current_state.vector],
                 "dimension_names": list(DIMENSION_NAMES),
                 "recommended_actions": actions,
+                "state_signature": signature,
                 "timestamp": time.time(),
             }
             self._send_json(data)
@@ -173,11 +178,20 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
                 "genesis_value": float(assessment.genesis_value),
             })
 
-        elif path == "/api/v1/domain":
-            dim = payload.get("dimension", "identity")
-            level = float(payload.get("level", 1.0))
-            engine.set_domain_activation(dim, level)
-            self._send_json({"message": f"Set domain '{dim}' activation level to {level}."})
+        elif path == "/api/v1/self-heal":
+            from h11_cga.core.advanced import SelfHealingProjector
+            projector = SelfHealingProjector(engine._config)
+            current = engine._sense.get_current_state()
+            baseline = engine._sense.get_baseline()
+            restored, energy, _ = projector.project_to_permissible_manifold(current, baseline)
+            engine._sense.current_state = restored
+            assessment = engine.process_tick()
+            self._send_json({
+                "message": f"Applied Self-Healing Projection R_genesis. Energy restored = {energy:.4f}",
+                "energy_restored": energy,
+                "new_status": assessment.status.value,
+                "genesis_value": float(assessment.genesis_value),
+            })
 
         else:
             self._send_json({"error": "Endpoint not found", "path": path}, status_code=404)

@@ -203,6 +203,12 @@
                 <button onclick="injectAttack('lateral_movement')">Lateral Movement</button>
             </div>
 
+            <div style="margin-top:15px;">
+                <button onclick="triggerSelfHeal()" style="width:100%; background:#059669; color:#ffffff; font-weight:700; border:none; padding:12px;">
+                    ⚡ RESTORE SELF-HEALING STATE PROJECTION R_genesis(X_c)
+                </button>
+            </div>
+
             <h3 style="margin-top:25px;">Prioritized Response Actions (ΔCR)</h3>
             <table>
                 <thead>
@@ -278,6 +284,14 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({attack: attackName, severity: 0.7})
+            });
+            fetchStatus();
+        }
+
+        async function triggerSelfHeal() {
+            await fetch('/api/v1/self-heal', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
             });
             fetchStatus();
         }
