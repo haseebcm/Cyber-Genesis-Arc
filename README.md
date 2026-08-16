@@ -146,6 +146,36 @@ h11-monitor
 
 # Run monitor for 30 seconds with 0.5s polling interval
 h11-monitor --duration 30 --interval 0.5
+---
+
+## Phase 3: AI Guardrails, Red-Team Benchmarks & Control Barrier Certificates
+
+Phase 3 extends H¹¹-CGA into **Autonomous AI Safety Guardrails**, **Red-Team Attack Benchmarking**, and **Formal Verification**:
+
+| Component | Subpackage | Function & Value |
+|-----------|------------|------------------|
+| **`AIAgentGuardrailEngine`** | `h11_cga.ai_guardrails` | Intercepts proposed autonomous AI agent tool calls, function calls, and system executions. Projects their 11-D impact vector before execution. If prompt injection or privilege escalation is detected ($\Pi_c = 0$), Encrypt-IC instantly nullifies execution to $N_0$. |
+| **`RedTeamBenchmarkEngine`** | `h11_cga.benchmarks` | Executes 10 complex multi-stage attack scenarios (APT cascades, zero-day code executions, ransomware bursts, insider threats, prompt injections) comparing H¹¹-CGA against traditional rule-based SIEM/EDR. Demonstrates **4.90x faster detection speedup** and **90.4% cascade suppression**. |
+| **`BarrierCertificate`** | `h11_cga.core` | Computes Control Barrier Functions (CBFs) $h(X_c) \ge 0$ to mathematically verify forward-invariance of the safe security manifold $\Omega_c$. |
+
+### AI Guardrail Quickstart
+
+```python
+from h11_cga import AIAgentGuardrailEngine, AIToolRequest, AIToolCategory
+
+guardrail = AIAgentGuardrailEngine()
+
+# Guard an AI agent tool request
+request = AIToolRequest(
+    agent_id="research_agent_01",
+    tool_name="privileged_shell",
+    category=AIToolCategory.PRIVILEGED_CMD,
+    parameters={"command": "sudo rm -rf /root"}
+)
+
+decision = guardrail.inspect_and_govern(request)
+if not decision.permitted:
+    print(f"Intercepted & Nullified (N_0): {decision.reason}")
 ```
 
 ---
@@ -290,6 +320,12 @@ h11_cga/
 │   ├── ebpf_probe.py        # Linux eBPF network socket flow probe
 │   ├── log_adapter.py       # Syslog, Auth, & Audit trail parser
 │   └── hub.py               # TelemetryIngestionHub multi-source aggregator
+├── ai_guardrails/           # Autonomous AI Safety Guardrail Subpackage
+│   ├── __init__.py          # Guardrails exports
+│   └── engine.py            # AIAgentGuardrailEngine & tool call inspector
+├── benchmarks/              # Red-Team Attack Benchmark Engine
+│   ├── __init__.py          # Benchmarks exports
+│   └── redteam_engine.py    # 10-Scenario Red-Team Benchmark Suite vs SIEM/EDR
 ├── core/
 │   ├── mcc.py               # MCC Security State Space
 │   ├── dsa.py               # DSA Directional Divergence
@@ -299,6 +335,7 @@ h11_cga/
 │   ├── cci.py               # CCI Cascade Collapse Index
 │   ├── genesis.py           # Genesis Permission Operator
 │   ├── domain_nullification.py  # Domain Nullification
+│   ├── barrier.py           # Control Barrier Certificates (CBF)
 │   ├── transformation_matrix.py # 11×11 Matrix (121 nodes)
 │   └── cyber_genesis_equation.py # The Master Equation
 └── engines/

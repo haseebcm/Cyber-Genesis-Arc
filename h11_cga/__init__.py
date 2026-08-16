@@ -14,6 +14,7 @@ from h11_cga.types import (
 from h11_cga.orchestrator import CyberGenesisEngine
 from h11_cga.core.transformation_matrix import TransformationMatrix
 from h11_cga.core.cyber_genesis_equation import CyberGenesisEquation
+from h11_cga.core.barrier import BarrierCertificate
 
 from h11_cga.adapters import (
     BaseTelemetryAdapter,
@@ -24,7 +25,20 @@ from h11_cga.adapters import (
     TelemetryIngestionHub,
 )
 
-__version__ = '0.2.0'
+from h11_cga.ai_guardrails import (
+    AIAgentGuardrailEngine,
+    AIToolRequest,
+    AIToolCategory,
+    GuardrailDecision,
+)
+
+from h11_cga.benchmarks import (
+    RedTeamBenchmarkEngine,
+    ScenarioResult,
+    BenchmarkReport,
+)
+
+__version__ = '0.3.0'
 
 __all__ = [
     'SecurityState',
@@ -51,10 +65,18 @@ __all__ = [
     'CyberGenesisEngine',
     'TransformationMatrix',
     'CyberGenesisEquation',
+    'BarrierCertificate',
     'BaseTelemetryAdapter',
     'SystemAdapter',
     'KubernetesAdapter',
     'EBPFNetworkProbe',
     'LogAdapter',
     'TelemetryIngestionHub',
+    'AIAgentGuardrailEngine',
+    'AIToolRequest',
+    'AIToolCategory',
+    'GuardrailDecision',
+    'RedTeamBenchmarkEngine',
+    'ScenarioResult',
+    'BenchmarkReport',
 ]
