@@ -25,22 +25,28 @@ class LimitEngine:
         self.config = config
         self.core_ule = CoreLimitEngine(config)
         self.hsa = SingularityTracker(config)
+        self._utilization_history: list[float] = []
 
     def evaluate(
-        self, dr: float, divergence: np.ndarray
+        self, dr: float, divergence: np.ndarray, dt: float = 1.0
     ) -> tuple[float, HSAZone, float, float, bool]:
         """Run ULE + HSA analysis.
 
         Returns:
             (hsa_coordinate, hsa_zone, security_buffer, limit_utilization, within_limits)
         """
-        # ULE: compute limit utilization from divergence as demand
         demand = np.abs(divergence)
         limit_utilization = self.core_ule.compute_limit_utilization(demand)
         within_limits = self.core_ule.is_within_limit(limit_utilization)
 
-        # HSA: update buffer and compute singularity coordinate
-        self.hsa.update_buffer(dr)
+        self._utilization_history.append(limit_utilization)
+        window = getattr(self.config, "dsa_history_window", 20)
+        if len(self._utilization_history) > window:
+            self._utilization_history = self._utilization_history[-window:]
+        if len(self._utilization_history) >= 5:
+            self.core_ule.adapt_capacity(self._utilization_history)
+
+        self.hsa.update_buffer(dr, dt=dt)
         hsa_coordinate = self.hsa.compute_singularity_coordinate(dr)
         hsa_zone = self.hsa.get_zone(hsa_coordinate)
         security_buffer = self.hsa.get_security_buffer()
@@ -55,4 +61,5 @@ class LimitEngine:
         """Reset the LIMIT engine."""
         self.core_ule = CoreLimitEngine(self.config)
         self.hsa = SingularityTracker(self.config)
+        self._utilization_history.clear()
         logger.info("LimitEngine reset")

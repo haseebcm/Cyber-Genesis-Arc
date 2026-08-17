@@ -75,14 +75,19 @@ class EncryptICEngine:
         # Compute permission
         permission, _details = self.genesis.evaluate(state, baseline, cci)
 
-        # Get domain vector and compute metric
+        # Persist Encrypt-IC domain policy: unauthorized → N_0 (all domains
+        # nullified); authorized → restore full activation if previously wiped.
+        if classification == EncryptICClassification.UNAUTHORIZED:
+            for i in range(NUM_DIMENSIONS):
+                self.nullifier.nullify_domain(i)
+        elif classification == EncryptICClassification.AUTHORIZED:
+            if self.nullifier.compute_complexity_reduction() == 0.0:
+                self.nullifier.set_domain_vector(DomainVector())
+
         domain_vector = self.nullifier.get_domain_vector()
         domain_metric = self.nullifier.compute_domain_metric(domain_vector)
 
-        # If unauthorized, nullify all domains
         if classification == EncryptICClassification.UNAUTHORIZED:
-            for i in range(NUM_DIMENSIONS):
-                domain_vector.nullify(i)
             domain_metric = 0.0
 
         return classification, permission, domain_metric, domain_vector

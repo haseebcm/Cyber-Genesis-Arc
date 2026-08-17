@@ -28,19 +28,23 @@ logger = logging.getLogger(__name__)
 class ConvergeEngine:
     """H¹¹ CONVERGE — Adaptive Cyber Response Engine."""
 
-    def __init__(self, config: CGAConfig) -> None:
+    def __init__(
+        self,
+        config: CGAConfig,
+        coupling_matrix: np.ndarray | None = None,
+    ) -> None:
         self.config = config
+        self._coupling_matrix = coupling_matrix
         self.dcr = DCREngine(config)
-        self.cci = CascadeAnalyzer(config)
+        self.cci = CascadeAnalyzer(config, coupling_matrix=coupling_matrix)
 
     def process(
         self,
         divergence: DivergenceResult,
         hsa_zone: HSAZone,
-        cci_subcritical: bool,
         errors: np.ndarray,
     ) -> tuple[list[ResponseAction], float, bool, list[CascadePath]]:
-        """Run CCI analysis, generate response plan.
+        """Run CCI analysis, generate ΔCR-prioritized response plan.
 
         Returns:
             (actions, cci_value, cci_subcritical, cascade_paths)
@@ -48,13 +52,11 @@ class ConvergeEngine:
         cci_val = self.cci.compute_cci(errors)
         is_subcritical = self.cci.is_subcritical(cci_val)
 
-        # Find cascade paths from the most divergent dimension
         cascade_paths: list[CascadePath] = []
         if errors.any():
             worst_dim = int(np.argmax(np.abs(errors)))
             cascade_paths = self.cci.identify_cascade_paths(worst_dim)
 
-        # Generate prioritized response plan
         actions = self.dcr.generate_response_plan(
             divergence, hsa_zone, is_subcritical
         )
@@ -68,5 +70,5 @@ class ConvergeEngine:
     def reset(self) -> None:
         """Reset the CONVERGE engine."""
         self.dcr = DCREngine(self.config)
-        self.cci = CascadeAnalyzer(self.config)
+        self.cci = CascadeAnalyzer(self.config, coupling_matrix=self._coupling_matrix)
         logger.info("ConvergeEngine reset")

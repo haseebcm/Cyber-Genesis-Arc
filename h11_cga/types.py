@@ -469,6 +469,22 @@ class ThreatAssessment:
     genesis_terms: dict[str, float] = field(default_factory=dict)
     """Breakdown of each term in the Genesis Equation."""
 
+    # --- Encrypt-IC ---
+    encrypt_classification: EncryptICClassification = EncryptICClassification.AUTHORIZED
+    """Encrypt-IC boundary classification for this cycle."""
+
+    # --- Barrier / Regeneration (closed loop) ---
+    barrier_value: float = 1.0
+    """h(X_c) — Control Barrier Function; ≥ 0 inside Ω_c."""
+    barrier_invariant: bool = True
+    """Whether dh/dt + γ·h(X_c) ≥ 0 (forward-invariance of Ω_c)."""
+    time_to_boundary: float | None = None
+    """HSA linear estimate of ticks-to-singularity; None if receding."""
+    safety_conditions: dict[str, bool] = field(default_factory=dict)
+    """Convergent Permission Principle checks."""
+    regeneration_energy: float = 0.0
+    """Energy applied by R_genesis during closed-loop regeneration."""
+
     # --- Response ---
     status: SystemStatus = SystemStatus.PERMITTED
     """Overall system status."""
@@ -493,6 +509,9 @@ class ThreatAssessment:
             "cci_value": round(self.cci_value, 4),
             "cci_subcritical": self.cci_subcritical,
             "domain_metric": round(self.domain_metric, 4),
+            "encrypt_classification": self.encrypt_classification.value,
+            "barrier_value": round(self.barrier_value, 4),
+            "barrier_invariant": self.barrier_invariant,
             "num_actions": len(self.recommended_actions),
         }
 
@@ -635,6 +654,19 @@ class CGAConfig:
 
     buffer_recovery_rate: float = 0.05
     """Rate at which buffer recovers when divergence decreases."""
+
+    # --- Closed loop (RE-EVAL → SENSE) ---
+    closed_loop_enabled: bool = True
+    """Apply ENCRYPT/CONVERGE outputs back into SENSE for the next cycle."""
+
+    cascade_gain: float = 0.12
+    """How strongly residual divergence propagates through T_c per tick."""
+
+    convergence_gain: float = 0.35
+    """How strongly ΔCR actions restore degraded dimensions toward X_c*."""
+
+    regeneration_enabled: bool = True
+    """Apply R_genesis projection when recovering inside a controlled HSA zone."""
 
     def __post_init__(self) -> None:
         self.dr_weights = np.asarray(self.dr_weights, dtype=np.float64)

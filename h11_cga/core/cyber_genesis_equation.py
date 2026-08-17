@@ -58,16 +58,19 @@ class CyberGenesisEquation:
             return SystemStatus.EMERGENCY
             
         t = self.config.status_thresholds
-        
-        if gc >= t.get('permitted', 0.8):
+
+        def _threshold(name: str, fallback: float) -> float:
+            return float(t.get(name, t.get(name.lower(), fallback)))
+
+        if gc >= _threshold("PERMITTED", 0.90):
             return SystemStatus.PERMITTED
-        elif gc >= t.get('monitoring', 0.5):
+        elif gc >= _threshold("MONITORING", 0.70):
             return SystemStatus.MONITORING
-        elif gc >= t.get('warning', 0.2):
+        elif gc >= _threshold("WARNING", 0.40):
             return SystemStatus.WARNING
-        elif gc >= t.get('critical', 0.0):
+        elif gc >= _threshold("CRITICAL", 0.10):
             return SystemStatus.CRITICAL
-        elif gc >= t.get('containment', -0.5):
+        elif gc >= _threshold("CONTAINMENT", 0.0):
             return SystemStatus.CONTAINMENT
         else:
             return SystemStatus.EMERGENCY

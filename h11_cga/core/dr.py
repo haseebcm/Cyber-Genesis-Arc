@@ -59,16 +59,16 @@ class DivergenceRatio:
         """
         return float(domain_metric * dr)
 
-    def get_dr_rate(self) -> float:
+    def get_dr_rate(self, dt: float = 1.0) -> float:
         """
         Compute the finite difference of DR history (d/dt DR_c).
-        
+
         Returns:
             float: The rate of change of DR.
         """
         if len(self._dr_history) < 2:
             return 0.0
-        return self._dr_history[-1] - self._dr_history[-2]
+        return (self._dr_history[-1] - self._dr_history[-2]) / max(dt, 1e-9)
 
     def record(self, dr_value: float) -> None:
         """

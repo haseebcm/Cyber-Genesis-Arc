@@ -37,24 +37,23 @@ class DivergeEngine:
         state: SecurityState,
         baseline: SecurityBaseline,
         domain_metric: float = 1.0,
+        dt: float = 1.0,
     ) -> tuple[DivergenceResult, float, float, float]:
         """Run DSA + DR analysis.
+
+        Domain metric W_c(a) from DNT produces the architecture term
+        DR_c^(a) = W_c(a) · DR_c.
 
         Returns:
             (divergence_result, dr_value, dr_adjusted, dr_rate)
         """
-        # DSA: compute directional divergence
-        div_result = self.dsa.compute_divergence(state, baseline)
+        div_result = self.dsa.compute_divergence(state, baseline, dt=dt)
 
-        # DR: compute magnitude from divergence vector
         dr_value = self.dr.compute_dr(div_result.divergence_vector)
         self.dr.record(dr_value)
 
-        # Domain-adjusted DR
         dr_adjusted = self.dr.compute_domain_adjusted_dr(dr_value, domain_metric)
-
-        # DR rate (acceleration)
-        dr_rate = self.dr.get_dr_rate()
+        dr_rate = self.dr.get_dr_rate(dt=dt)
 
         self.classification = div_result.classification
 

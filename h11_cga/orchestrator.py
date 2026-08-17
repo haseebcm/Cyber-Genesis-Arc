@@ -3,7 +3,7 @@ H¹¹-CGA Orchestrator
 =====================
 
 The main control loop connecting all five engines in the closed loop:
-SENSE → DIVERGE → LIMIT → CONVERGE → ENCRYPT → re-evaluate → SENSE
+SENSE → DIVERGE → LIMIT → CONVERGE → ENCRYPT → RE-EVAL → SENSE
 
 This is the primary entry point for the H¹¹ Cyber Genesis Architecture.
 """
@@ -18,11 +18,14 @@ import numpy as np
 from h11_cga.types import (
     CGAConfig, ThreatAssessment, SecurityEvent, TelemetryInput,
     SecurityState, SecurityBaseline, DivergenceResult, DomainVector,
-    SystemStatus, HSAZone, CascadePath, ResponseAction,
-    NUM_DIMENSIONS, DIMENSION_NAMES, DIMENSION_INDEX,
+    SystemStatus, HSAZone, ActionUrgency,
+    DivergenceClassification,
+    NUM_DIMENSIONS, DIMENSION_INDEX,
 )
 from h11_cga.core.transformation_matrix import TransformationMatrix
 from h11_cga.core.cyber_genesis_equation import CyberGenesisEquation
+from h11_cga.core.barrier import BarrierCertificate
+from h11_cga.core.advanced import SelfHealingProjector
 from h11_cga.engines.sense import SenseEngine
 from h11_cga.engines.diverge import DivergeEngine
 from h11_cga.engines.limit import LimitEngine as LimitEngineWrapper
@@ -33,7 +36,7 @@ from h11_cga.engines.encrypt import EncryptICEngine
 class CyberGenesisEngine:
     """The main control loop orchestrator for H¹¹-CGA.
 
-    Connects SENSE -> DIVERGE -> LIMIT -> CONVERGE -> ENCRYPT -> re-evaluate.
+    Connects SENSE -> DIVERGE -> LIMIT -> CONVERGE -> ENCRYPT -> RE-EVAL.
     Each call to ``process_tick`` executes one full cycle of the architecture.
     """
 
@@ -43,30 +46,30 @@ class CyberGenesisEngine:
             config = CGAConfig()
         self._config = config
 
-        # Core math components
-        self._transform = TransformationMatrix()  # uses default 11x11 matrix
+        # Core math components — T_c is shared with CCI so cascade math
+        # and state propagation use the same 121 influence nodes.
+        self._transform = TransformationMatrix()
         self._equation = CyberGenesisEquation(config)
+        self._barrier = BarrierCertificate(config)
+        self._healer = SelfHealingProjector(config)
 
         # Five subsystem engines
         self._sense = SenseEngine(config)
         self._diverge = DivergeEngine(config)
         self._limit = LimitEngineWrapper(config)
-        self._converge = ConvergeEngine(config)
+        self._converge = ConvergeEngine(config, coupling_matrix=self._transform.as_array())
         self._encrypt = EncryptICEngine(config)
 
-        # Set up sense engine with proper baseline (state values in [0,1])
         nominal = np.ones(NUM_DIMENSIONS)
         self._sense.update_baseline(nominal, tolerance=0.3)
-        self._sense.current_state = SecurityState(
-            vector=nominal.copy(), timestamp=time.time()
-        )
 
-        # Tracking
         self._tick_count: int = 0
         self._assessment_history: List[ThreatAssessment] = []
         self._event_log: List[dict] = []
         self._last_dr: float = 0.0
         self._last_dr_adjusted: float = 0.0
+        self._last_tick_time: float = time.time()
+        self._previous_state: Optional[SecurityState] = None
 
     def process_tick(
         self, telemetry: Optional[TelemetryInput] = None
@@ -74,44 +77,60 @@ class CyberGenesisEngine:
         """Execute ONE FULL CYCLE of the H¹¹-CGA control loop.
 
         Steps:
-            1. SENSE   — ingest telemetry → current state
-            2. DIVERGE — DSA + DR → divergence, magnitude, acceleration
-            3. LIMIT   — ULE + HSA → distance to failure
+            1. SENSE    — ingest telemetry → current state
+            2. DIVERGE  — DSA + DR^(a) (domain-adjusted via DNT)
+            3. LIMIT    — ULE + HSA → distance to failure
             4. CONVERGE — CCI + ΔCR → prioritized response actions
-            5. ENCRYPT — Genesis + DNT → permission, domain metric
+            5. ENCRYPT  — Genesis + DNT → permission, domain metric
             6. EQUATION — compute G_c(t) → system status
+            7. BARRIER  — h(X_c) forward-invariance of Ω_c
+            8. RE-EVAL  — T_c cascade + ΔCR convergence + regeneration
+                          fed back into SENSE for the next cycle
 
         Returns:
-            Complete ThreatAssessment for this cycle.
+            Complete ThreatAssessment for this cycle (pre-regeneration).
         """
+        now = time.time()
+        self._last_tick_time = now
+        # One process_tick is one discrete control cycle, independent of
+        # wall-clock spacing between calls (tests vs live monitor).
+        dt = 1.0
+
         # --- 1. SENSE ---
         if telemetry is not None:
             self._sense.ingest(telemetry)
         current_state = self._sense.get_current_state()
         baseline = self._sense.get_baseline()
 
-        # --- 2. DIVERGE ---
+        # --- 2. DIVERGE (W_c(a) from last ENCRYPT / current DNT) ---
+        domain_metric = self._encrypt.get_domain_nullifier().compute_domain_metric()
         divergence, dr_value, dr_adjusted, dr_rate = self._diverge.analyze(
-            current_state, baseline
+            current_state, baseline, domain_metric=domain_metric, dt=dt
         )
         self._last_dr = dr_value
         self._last_dr_adjusted = dr_adjusted
 
         # --- 3. LIMIT ---
         hsa_coordinate, hsa_zone, security_buffer, limit_utilization, within_limits = (
-            self._limit.evaluate(dr_value, divergence.divergence_vector)
+            self._limit.evaluate(dr_value, divergence.divergence_vector, dt=dt)
         )
 
         # --- 4. CONVERGE ---
         errors = np.abs(divergence.divergence_vector)
         actions, cci_value, cci_subcritical, cascade_paths = self._converge.process(
-            divergence, hsa_zone, True, errors
+            divergence, hsa_zone, errors
         )
 
         # --- 5. ENCRYPT ---
         classification, permission, domain_metric, domain_vector = (
             self._encrypt.enforce_boundary(current_state, baseline, cci_value)
         )
+
+        # Recompute domain-adjusted DR with the post-ENCRYPT W_c(a) so
+        # G_c(t) uses the architecture term DR_c^(a) = W_c(a) · DR_c
+        # from this cycle's boundary decision.
+        dr_adjusted = self._diverge.dr.compute_domain_adjusted_dr(dr_value, domain_metric)
+        self._last_dr_adjusted = dr_adjusted
 
         # --- 6. EQUATION ---
         hsa_positive = max(0.0, hsa_coordinate)
@@ -123,8 +142,32 @@ class CyberGenesisEngine:
             cci=cci_value,
         )
         status = self._equation.classify_status(gc_value, permission)
+        safety_conditions = self._equation.get_safety_conditions(
+            permission, hsa_coordinate, cci_value, dr_adjusted
+        )
 
-        # --- 7. Build ThreatAssessment ---
+        # --- 7. BARRIER ---
+        prev = self._previous_state if self._previous_state is not None else current_state
+        barrier_invariant, barrier_value, _cbf = self._barrier.verify_invariance(
+            current_state, prev, baseline, dt=dt
+        )
+        self._previous_state = current_state.copy()
+        time_to_boundary = self._limit.get_time_to_boundary()
+
+        # --- 8. RE-EVAL / closed loop (does not rewrite this tick's assessment) ---
+        regeneration_energy = 0.0
+        if self._config.closed_loop_enabled and telemetry is None:
+            regeneration_energy =             self._apply_closed_loop(
+                current_state=current_state,
+                baseline=baseline,
+                divergence=divergence,
+                domain_vector=domain_vector,
+                actions=actions,
+                permission=permission,
+                hsa_zone=hsa_zone,
+                dt=dt,
+            )
+
         assessment = ThreatAssessment(
             current_state=current_state,
             baseline=baseline,
@@ -146,35 +189,103 @@ class CyberGenesisEngine:
             domain_metric=domain_metric,
             genesis_value=gc_value,
             genesis_terms=gc_terms,
+            encrypt_classification=classification,
+            barrier_value=barrier_value,
+            barrier_invariant=barrier_invariant,
+            time_to_boundary=time_to_boundary,
+            safety_conditions=safety_conditions,
+            regeneration_energy=regeneration_energy,
             status=status,
             recommended_actions=actions,
-            timestamp=time.time(),
+            timestamp=now,
         )
 
-        # --- 8. Log ---
         self._assessment_history.append(assessment)
         self._event_log.append({
             "tick": self._tick_count,
             "timestamp": assessment.timestamp,
             "status": status.value,
             "genesis_value": gc_value,
+            "encrypt_classification": classification.value,
+            "barrier_value": barrier_value,
         })
         self._tick_count += 1
 
         return assessment
+
+    def _apply_closed_loop(
+        self,
+        current_state: SecurityState,
+        baseline: SecurityBaseline,
+        divergence: DivergenceResult,
+        domain_vector: DomainVector,
+        actions,
+        permission: float,
+        hsa_zone: HSAZone,
+        dt: float,
+    ) -> float:
+        """Feed ENCRYPT / CONVERGE / T_c outputs back into SENSE.
+
+        1. Cascade: residual divergence spreads through T_c, gated by a(t)
+        2. Convergence: ΔCR actions pull degraded dimensions toward X_c*
+        3. Regeneration: R_genesis projects onto Ω_c when recovering
+        """
+        gain_dt = min(max(dt, 1e-6), 1.0) * self._config.cascade_gain
+        residual = current_state.vector - baseline.reference
+        cascaded = self._transform.propagate_state(
+            current_state,
+            residual,
+            dt=gain_dt,
+            domain_vector=domain_vector,
+        )
+        vec = cascaded.vector.copy()
+
+        urgency_scale = {
+            ActionUrgency.LOW: 0.08,
+            ActionUrgency.MEDIUM: 0.18,
+            ActionUrgency.HIGH: 0.40,
+            ActionUrgency.CRITICAL: 0.60,
+        }
+        conv_gain = self._config.convergence_gain
+        for action in actions:
+            if action.dimension < 0:
+                continue
+            i = action.dimension
+            step = urgency_scale.get(action.urgency, 0.1) * conv_gain
+            vec[i] = vec[i] + step * (baseline.reference[i] - vec[i])
+
+        # Encrypt-IC N_0 isolates unauthorized *execution*; MCC state X_c(t)
+        # remains the measured security state so ΔCR can still converge it.
+
+        regeneration_energy = 0.0
+        recovering = divergence.classification == DivergenceClassification.RECOVERING
+        if (
+            self._config.regeneration_enabled
+            and recovering
+            and hsa_zone == HSAZone.CONTROLLED
+            and permission == 1.0
+        ):
+            candidate = SecurityState(vector=np.clip(vec, 0.0, 1.0), timestamp=time.time())
+            restored, energy, _corr = self._healer.project_to_permissible_manifold(
+                candidate, baseline
+            )
+            vec = restored.vector
+            regeneration_energy = energy
+
+        new_state = SecurityState(
+            vector=np.clip(vec, 0.0, 1.0),
+            timestamp=time.time(),
+        )
+        self._sense.current_state = new_state
+        return regeneration_energy
 
     # ------------------------------------------------------------------
     # Event injection
     # ------------------------------------------------------------------
 
     def inject_event(self, event: SecurityEvent) -> ThreatAssessment:
-        """Apply a security event to the state and run a full tick."""
-        # Apply impact directly to current state
-        current = self._sense.get_current_state()
-        new_vec = np.clip(current.vector + event.impact, 0.0, 1.0)
-        self._sense.current_state = SecurityState(
-            vector=new_vec, timestamp=time.time()
-        )
+        """Apply a security event to the MCC state and run a full tick."""
+        self._sense.get_state_space().apply_event(event)
         return self.process_tick()
 
     def inject_attack(
@@ -190,6 +301,8 @@ class CyberGenesisEngine:
             - insider_threat
             - zero_day
             - lateral_movement
+            - ransomware
+            - supply_chain
         """
         patterns = {
             "identity_compromise": {
@@ -212,6 +325,12 @@ class CyberGenesisEngine:
             },
             "lateral_movement": {
                 "network": -0.6, "compute": -1.0, "memory": -0.5, "authorization": -0.4
+            },
+            "ransomware": {
+                "data": -1.0, "execution": -0.8, "recovery": -0.9, "resource": -0.5
+            },
+            "supply_chain": {
+                "trust": -0.9, "execution": -0.7, "governance": -0.6, "identity": -0.4
             },
         }
 
@@ -274,6 +393,12 @@ class CyberGenesisEngine:
             "domain_metric": latest.domain_metric,
             "active_domains": latest.domain_vector.active_domains,
             "actions_count": len(latest.recommended_actions),
+            "encrypt_classification": latest.encrypt_classification.value,
+            "barrier_value": latest.barrier_value,
+            "barrier_invariant": latest.barrier_invariant,
+            "time_to_boundary": latest.time_to_boundary,
+            "safety_conditions": latest.safety_conditions,
+            "regeneration_energy": latest.regeneration_energy,
         }
 
     def get_assessment_history(self) -> List[ThreatAssessment]:
@@ -295,6 +420,8 @@ class CyberGenesisEngine:
         self._event_log.clear()
         self._last_dr = 0.0
         self._last_dr_adjusted = 0.0
+        self._last_tick_time = time.time()
+        self._previous_state = None
 
         self._sense.reset()
         self._diverge.reset()
@@ -302,9 +429,5 @@ class CyberGenesisEngine:
         self._converge.reset()
         self._encrypt.reset()
 
-        # Re-establish nominal baseline
         nominal = np.ones(NUM_DIMENSIONS)
         self._sense.update_baseline(nominal, tolerance=0.3)
-        self._sense.current_state = SecurityState(
-            vector=nominal.copy(), timestamp=time.time()
-        )

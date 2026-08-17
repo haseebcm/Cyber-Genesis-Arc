@@ -173,3 +173,69 @@ def test_orchestrator_closed_loop():
     # Verify history
     history = engine.get_assessment_history()
     assert len(history) == 2
+
+    assert attack_assessment.encrypt_classification in (
+        EncryptICClassification.UNAUTHORIZED,
+        EncryptICClassification.DIVERGENT,
+        EncryptICClassification.UNCERTAIN,
+        EncryptICClassification.AUTHORIZED,
+    )
+    assert "permission_granted" in attack_assessment.safety_conditions
+
+
+def test_mcc_apply_event_and_envelope(config):
+    mcc = SecurityStateSpace(config)
+    assert mcc.is_within_envelope() is True
+
+    event = SecurityEvent(
+        event_type="test_hit",
+        impact=np.array([-0.5] + [0.0] * (NUM_DIMENSIONS - 1)),
+        severity=0.5,
+    )
+    new_state = mcc.apply_event(event)
+    assert new_state["identity"] == pytest.approx(0.5)
+    assert mcc.is_within_envelope() is False
+
+
+def test_genesis_status_uses_config_thresholds(config):
+    cge = CyberGenesisEquation(config)
+    assert cge.classify_status(0.95, permission=1.0) == SystemStatus.PERMITTED
+    assert cge.classify_status(0.85, permission=1.0) == SystemStatus.MONITORING
+    assert cge.classify_status(0.50, permission=1.0) == SystemStatus.WARNING
+    assert cge.classify_status(0.20, permission=1.0) == SystemStatus.CRITICAL
+    assert cge.classify_status(0.05, permission=1.0) == SystemStatus.CONTAINMENT
+    assert cge.classify_status(0.95, permission=0.0) == SystemStatus.EMERGENCY
+
+
+def test_transformation_matrix_is_deterministic():
+    tm1 = TransformationMatrix()
+    tm2 = TransformationMatrix()
+    assert np.allclose(tm1.as_array(), tm2.as_array())
+    assert tm1.as_array().shape == (11, 11)
+    paths = tm1.find_cascade_path("identity")
+    assert len(paths) > 0
+
+
+def test_closed_loop_converges_after_attack():
+    engine = CyberGenesisEngine()
+    engine.process_tick()
+    attack = engine.inject_attack("identity_compromise", severity=0.5)
+    attacked_identity = attack.current_state["identity"]
+    assert attacked_identity < 0.7
+
+    for _ in range(12):
+        engine.process_tick()
+
+    later = engine.get_assessment_history()[-1]
+    assert later.current_state["identity"] > attacked_identity
+
+
+def test_assessment_includes_barrier_and_dashboard():
+    engine = CyberGenesisEngine()
+    assessment = engine.process_tick()
+    assert assessment.barrier_value >= 0.0
+    assert assessment.barrier_invariant is True
+    dash = engine.get_dashboard()
+    assert "barrier_value" in dash
+    assert "encrypt_classification" in dash
+    assert dash["status"] == SystemStatus.PERMITTED.value

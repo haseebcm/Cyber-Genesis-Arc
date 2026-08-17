@@ -107,7 +107,8 @@ class DCREngine:
                 elif hsa_zone == HSAZone.SINGULARITY:
                     slack = 0.0
                 
-                if cci_subcritical:
+                # Amplify when cascade is supercritical (CCI ≥ Θ_c), not when safe
+                if not cci_subcritical:
                     pressure *= 1.5
                     
                 assessments.append((i, pressure, slack))
