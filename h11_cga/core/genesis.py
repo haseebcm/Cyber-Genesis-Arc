@@ -25,6 +25,12 @@ class GenesisPermission:
 
     def __init__(self, config: CGAConfig) -> None:
         self.config = config
+        self._debt: float = 0.0
+
+    @property
+    def debt(self) -> float:
+        """Outstanding caution owed before Π_c may return to 1."""
+        return self._debt
 
     def compute_permission(
         self,
@@ -39,11 +45,40 @@ class GenesisPermission:
             1. State within envelope
             2. Stability violation Φ(x) = 0
             3. CCI < Θ_c
+
+        When ``permission_debt_accrual`` is non-zero the gate also carries
+        hysteresis: each denied tick accrues debt, and permission stays
+        withheld until clean ticks have repaid it. This stops Π_c from
+        oscillating on a state that is hovering at the envelope edge.
         """
         in_envelope = baseline.is_within_envelope(state)
-        if in_envelope and stability_violation == 0.0 and cci < self.config.cci_threshold:
-            return 1.0
-        return 0.0
+        conditions_met = (
+            in_envelope
+            and stability_violation == 0.0
+            and cci < self.config.cci_threshold
+        )
+
+        accrual = getattr(self.config, "permission_debt_accrual", 0.0)
+        if accrual <= 0.0:
+            self._debt = 0.0
+            return 1.0 if conditions_met else 0.0
+
+        if not conditions_met:
+            ceiling = getattr(self.config, "permission_debt_max", 5.0)
+            self._debt = min(ceiling, self._debt + accrual)
+            return 0.0
+
+        if self._debt > 0.0:
+            repayment = getattr(self.config, "permission_debt_repayment", 0.5)
+            self._debt = max(0.0, self._debt - repayment)
+            if self._debt > 0.0:
+                return 0.0
+
+        return 1.0
+
+    def reset_debt(self) -> None:
+        """Clear accumulated permission debt."""
+        self._debt = 0.0
 
     def compute_stability_violation(
         self,
@@ -88,5 +123,6 @@ class GenesisPermission:
             "cci": cci,
             "cci_threshold": float(self.config.cci_threshold),
             "in_envelope": float(baseline.is_within_envelope(state)),
+            "permission_debt": self._debt,
         }
         return permission, details

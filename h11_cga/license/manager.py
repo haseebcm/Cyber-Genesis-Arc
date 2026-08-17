@@ -34,7 +34,6 @@ class FeatureFlag(enum.Enum):
     WEB_DASHBOARD_UI = "WEB_DASHBOARD_UI"
     AI_AGENT_GUARDRAILS = "AI_AGENT_GUARDRAILS"
     REDTEAM_BENCHMARKS = "REDTEAM_BENCHMARKS"
-    BARRIER_CERTIFICATES = "BARRIER_CERTIFICATES"
 
     # Commercial Enterprise Features
     EBPF_XDP_ZERO_COPY_DROP = "EBPF_XDP_ZERO_COPY_DROP"
@@ -73,7 +72,6 @@ class LicenseManager:
             FeatureFlag.WEB_DASHBOARD_UI,
             FeatureFlag.AI_AGENT_GUARDRAILS,
             FeatureFlag.REDTEAM_BENCHMARKS,
-            FeatureFlag.BARRIER_CERTIFICATES,
         }
 
         self.license_info.active_features = set(community_features)

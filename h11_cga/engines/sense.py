@@ -33,6 +33,7 @@ class SenseEngine:
     def __init__(self, config: CGAConfig) -> None:
         self.config = config
         self.state_space = SecurityStateSpace(config)
+        self._calibration_samples: list[np.ndarray] = []
 
     @property
     def current_state(self) -> SecurityState:
@@ -71,6 +72,45 @@ class SenseEngine:
         self.state_space.update_baseline(reference, tolerance=tolerance)
         logger.debug("Baseline updated")
 
+    @property
+    def is_calibrating(self) -> bool:
+        """Whether SENSE is still learning the baseline from observations."""
+        window = getattr(self.config, "baseline_calibration_ticks", 0)
+        return window > 0 and len(self._calibration_samples) < window
+
+    def observe_for_calibration(self, state: SecurityState) -> bool:
+        """
+        Fold an observed state into the learned baseline X_c*.
+
+        Live systems never idle at the ideal all-nominal vector, so during
+        the warmup window the reference is the running mean of observation
+        and the envelope is derived from observed variance. Returns True
+        while calibration is still in progress.
+        """
+        window = getattr(self.config, "baseline_calibration_ticks", 0)
+        if window <= 0 or len(self._calibration_samples) >= window:
+            return False
+
+        self._calibration_samples.append(np.asarray(state.vector, dtype=np.float64).copy())
+        samples = np.vstack(self._calibration_samples)
+
+        reference = samples.mean(axis=0)
+        sigma = samples.std(axis=0) if len(self._calibration_samples) > 1 else np.zeros(NUM_DIMENSIONS)
+        tolerance = np.maximum(
+            self.config.baseline_tolerance_sigmas * sigma,
+            self.config.baseline_min_tolerance,
+        )
+
+        self.state_space.update_baseline(reference, tolerance=tolerance)
+
+        still_calibrating = len(self._calibration_samples) < window
+        if not still_calibrating:
+            logger.info(
+                f"Baseline calibrated over {window} observations: "
+                f"reference={np.round(reference, 3).tolist()}"
+            )
+        return still_calibrating
+
     def get_state_space(self) -> SecurityStateSpace:
         """Get the underlying MCC state space tracker."""
         return self.state_space
@@ -78,4 +118,5 @@ class SenseEngine:
     def reset(self) -> None:
         """Reset the SENSE engine to the nominal secure state."""
         self.state_space.reset()
+        self._calibration_samples.clear()
         logger.info("SenseEngine reset")

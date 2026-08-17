@@ -67,6 +67,11 @@ class ConvergeEngine:
         """Get potential cascade paths from a specific source dimension."""
         return self.cci.identify_cascade_paths(source_dim)
 
+    def set_coupling_matrix(self, coupling_matrix: np.ndarray) -> None:
+        """Adopt a revised T_c so cascade math tracks the corrected coupling."""
+        self._coupling_matrix = np.asarray(coupling_matrix, dtype=np.float64).copy()
+        self.cci = CascadeAnalyzer(self.config, coupling_matrix=self._coupling_matrix)
+
     def reset(self) -> None:
         """Reset the CONVERGE engine."""
         self.dcr = DCREngine(self.config)

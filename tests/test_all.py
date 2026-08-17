@@ -230,12 +230,45 @@ def test_closed_loop_converges_after_attack():
     assert later.current_state["identity"] > attacked_identity
 
 
-def test_assessment_includes_barrier_and_dashboard():
+def test_calibration_disabled_by_default():
     engine = CyberGenesisEngine()
-    assessment = engine.process_tick()
-    assert assessment.barrier_value >= 0.0
-    assert assessment.barrier_invariant is True
+    assert engine.is_calibrating is False
+    assert engine.process_tick().status == SystemStatus.PERMITTED
+
+
+def test_uncalibrated_engine_flags_normal_host_load_as_emergency():
+    """Without calibration the ideal all-1.0 baseline condemns a busy host."""
+    engine = CyberGenesisEngine()
+    busy_host = {"memory": 0.35, "compute": 0.6, "resource": 0.4}
+    assessment = engine.process_tick(TelemetryInput(raw_values=dict(busy_host)))
+    assert assessment.status == SystemStatus.EMERGENCY
+
+
+def test_baseline_calibration_learns_host_baseline():
+    config = CGAConfig(baseline_calibration_ticks=5)
+    engine = CyberGenesisEngine(config)
+    busy_host = {"memory": 0.35, "compute": 0.6, "resource": 0.4}
+
+    for _ in range(5):
+        engine.process_tick(TelemetryInput(raw_values=dict(busy_host)))
+    assert engine.is_calibrating is False
+    assert engine.get_calibration_progress() == (5, 5)
+
+    # Steady-state load is now the reference, not a threat
+    assessment = engine.process_tick(TelemetryInput(raw_values=dict(busy_host)))
+    assert assessment.status == SystemStatus.PERMITTED
+    assert assessment.permission == 1.0
+
+    # A genuine deviation from the learned baseline still registers
+    degraded = dict(busy_host, memory=0.05, compute=0.1)
+    deviated = engine.process_tick(TelemetryInput(raw_values=degraded))
+    assert deviated.dr_value > assessment.dr_value
+    assert deviated.status != SystemStatus.PERMITTED
+
+
+def test_assessment_includes_dashboard_fields():
+    engine = CyberGenesisEngine()
+    engine.process_tick()
     dash = engine.get_dashboard()
-    assert "barrier_value" in dash
     assert "encrypt_classification" in dash
     assert dash["status"] == SystemStatus.PERMITTED.value

@@ -20,12 +20,13 @@ from h11_cga.types import (
     SecurityState, SecurityBaseline, DivergenceResult, DomainVector,
     SystemStatus, HSAZone, ActionUrgency,
     DivergenceClassification,
-    NUM_DIMENSIONS, DIMENSION_INDEX,
+    NUM_DIMENSIONS, DIMENSION_INDEX, DIMENSION_NAMES,
 )
 from h11_cga.core.transformation_matrix import TransformationMatrix
 from h11_cga.core.cyber_genesis_equation import CyberGenesisEquation
-from h11_cga.core.barrier import BarrierCertificate
 from h11_cga.core.advanced import SelfHealingProjector
+from h11_cga.core.origin import OriginTracer
+from h11_cga.core.coherence import CoherenceAuditor
 from h11_cga.engines.sense import SenseEngine
 from h11_cga.engines.diverge import DivergeEngine
 from h11_cga.engines.limit import LimitEngine as LimitEngineWrapper
@@ -50,8 +51,15 @@ class CyberGenesisEngine:
         # and state propagation use the same 121 influence nodes.
         self._transform = TransformationMatrix()
         self._equation = CyberGenesisEquation(config)
-        self._barrier = BarrierCertificate(config)
         self._healer = SelfHealingProjector(config)
+
+        # Reflexive operators — the architecture inspecting its own model.
+        self._origin = OriginTracer(
+            self._transform.as_array(),
+            decay=config.origin_decay,
+            depth=config.origin_depth,
+        )
+        self._coherence = CoherenceAuditor(config)
 
         # Five subsystem engines
         self._sense = SenseEngine(config)
@@ -69,8 +77,6 @@ class CyberGenesisEngine:
         self._last_dr: float = 0.0
         self._last_dr_adjusted: float = 0.0
         self._last_tick_time: float = time.time()
-        self._previous_state: Optional[SecurityState] = None
-
     def process_tick(
         self, telemetry: Optional[TelemetryInput] = None
     ) -> ThreatAssessment:
@@ -83,8 +89,7 @@ class CyberGenesisEngine:
             4. CONVERGE — CCI + ΔCR → prioritized response actions
             5. ENCRYPT  — Genesis + DNT → permission, domain metric
             6. EQUATION — compute G_c(t) → system status
-            7. BARRIER  — h(X_c) forward-invariance of Ω_c
-            8. RE-EVAL  — T_c cascade + ΔCR convergence + regeneration
+            7. RE-EVAL  — T_c cascade + ΔCR convergence + regeneration
                           fed back into SENSE for the next cycle
 
         Returns:
@@ -96,11 +101,26 @@ class CyberGenesisEngine:
         # wall-clock spacing between calls (tests vs live monitor).
         dt = 1.0
 
-        # --- 1. SENSE ---
+        # --- 1. SENSE (+ rebaseline during calibration warmup) ---
         if telemetry is not None:
             self._sense.ingest(telemetry)
         current_state = self._sense.get_current_state()
+        calibrating = self._sense.observe_for_calibration(current_state)
         baseline = self._sense.get_baseline()
+
+        # --- 1b. AUDIT — grade last tick's T_c prediction against reality ---
+        coherence = 1.0
+        unexplained = np.zeros(NUM_DIMENSIONS)
+        if self._config.coherence_enabled:
+            coherence, unexplained = self._coherence.audit(current_state.vector)
+
+            rate = self._config.coupling_adaptation_rate
+            if rate > 0.0 and not calibrating:
+                correction = self._coherence.suggest_coupling_correction(unexplained, rate)
+                if np.any(correction):
+                    self._transform.apply_correction(correction)
+                    self._origin.set_matrix(self._transform.as_array())
+                    self._converge.set_coupling_matrix(self._transform.as_array())
 
         # --- 2. DIVERGE (W_c(a) from last ENCRYPT / current DNT) ---
         domain_metric = self._encrypt.get_domain_nullifier().compute_domain_metric()
@@ -109,6 +129,11 @@ class CyberGenesisEngine:
         )
         self._last_dr = dr_value
         self._last_dr_adjusted = dr_adjusted
+
+        # --- 2b. ORIGIN — run T_c backwards to attribute the pattern ---
+        origin_hypotheses = []
+        if self._config.origin_trace_enabled:
+            origin_hypotheses = self._origin.trace(divergence.divergence_vector)[:3]
 
         # --- 3. LIMIT ---
         hsa_coordinate, hsa_zone, security_buffer, limit_utilization, within_limits = (
@@ -132,6 +157,17 @@ class CyberGenesisEngine:
         dr_adjusted = self._diverge.dr.compute_domain_adjusted_dr(dr_value, domain_metric)
         self._last_dr_adjusted = dr_adjusted
 
+        # --- 5b. SCOPE COST — price the blind spot each nullification buys ---
+        nullification_cost = np.zeros(NUM_DIMENSIONS)
+        if self._config.nullification_cost_enabled:
+            nullification_cost = self._encrypt.get_domain_nullifier().compute_nullification_cost(
+                divergence.divergence_vector,
+                self._transform.as_array(),
+                domain_vector,
+            )
+
+        permission_debt = self._encrypt.genesis.debt
+
         # --- 6. EQUATION ---
         hsa_positive = max(0.0, hsa_coordinate)
         gc_value, gc_terms = self._equation.compute_with_breakdown(
@@ -146,17 +182,11 @@ class CyberGenesisEngine:
             permission, hsa_coordinate, cci_value, dr_adjusted
         )
 
-        # --- 7. BARRIER ---
-        prev = self._previous_state if self._previous_state is not None else current_state
-        barrier_invariant, barrier_value, _cbf = self._barrier.verify_invariance(
-            current_state, prev, baseline, dt=dt
-        )
-        self._previous_state = current_state.copy()
         time_to_boundary = self._limit.get_time_to_boundary()
 
-        # --- 8. RE-EVAL / closed loop (does not rewrite this tick's assessment) ---
+        # --- 7. RE-EVAL / closed loop (does not rewrite this tick's assessment) ---
         regeneration_energy = 0.0
-        if self._config.closed_loop_enabled and telemetry is None:
+        if self._config.closed_loop_enabled and telemetry is None and not calibrating:
             regeneration_energy =             self._apply_closed_loop(
                 current_state=current_state,
                 baseline=baseline,
@@ -167,6 +197,10 @@ class CyberGenesisEngine:
                 hsa_zone=hsa_zone,
                 dt=dt,
             )
+
+        # --- 7b. PREDICT — commit T_c's claim about where the state goes next ---
+        if self._config.coherence_enabled:
+            self._record_prediction(baseline, domain_vector, dt)
 
         assessment = ThreatAssessment(
             current_state=current_state,
@@ -190,8 +224,11 @@ class CyberGenesisEngine:
             genesis_value=gc_value,
             genesis_terms=gc_terms,
             encrypt_classification=classification,
-            barrier_value=barrier_value,
-            barrier_invariant=barrier_invariant,
+            origin_hypotheses=origin_hypotheses,
+            coherence=coherence,
+            unexplained_vector=unexplained,
+            nullification_cost=nullification_cost,
+            permission_debt=permission_debt,
             time_to_boundary=time_to_boundary,
             safety_conditions=safety_conditions,
             regeneration_energy=regeneration_energy,
@@ -207,7 +244,8 @@ class CyberGenesisEngine:
             "status": status.value,
             "genesis_value": gc_value,
             "encrypt_classification": classification.value,
-            "barrier_value": barrier_value,
+            "coherence": coherence,
+            "likely_origin": origin_hypotheses[0].name if origin_hypotheses else None,
         })
         self._tick_count += 1
 
@@ -230,12 +268,11 @@ class CyberGenesisEngine:
         2. Convergence: ΔCR actions pull degraded dimensions toward X_c*
         3. Regeneration: R_genesis projects onto Ω_c when recovering
         """
-        gain_dt = min(max(dt, 1e-6), 1.0) * self._config.cascade_gain
         residual = current_state.vector - baseline.reference
         cascaded = self._transform.propagate_state(
             current_state,
             residual,
-            dt=gain_dt,
+            dt=self._cascade_dt(dt),
             domain_vector=domain_vector,
         )
         vec = cascaded.vector.copy()
@@ -278,6 +315,28 @@ class CyberGenesisEngine:
         )
         self._sense.current_state = new_state
         return regeneration_energy
+
+    def _cascade_dt(self, dt: float) -> float:
+        """Effective per-tick step used whenever T_c propagates."""
+        return min(max(dt, 1e-6), 1.0) * self._config.cascade_gain
+
+    def _record_prediction(
+        self, baseline: SecurityBaseline, domain_vector: DomainVector, dt: float
+    ) -> None:
+        """Commit where T_c says the settled state will move by the next tick.
+
+        The prediction is cascade-only. Anything else that moves the state —
+        ΔCR convergence, regeneration, or the host itself — shows up next tick
+        as the unexplained residual, which is exactly what Λ_c is measuring.
+        """
+        settled = self._sense.get_current_state()
+        residual = settled.vector - baseline.reference
+        delta = self._transform.propagate_delta(
+            residual,
+            dt=self._cascade_dt(dt),
+            domain_vector=domain_vector,
+        )
+        self._coherence.record_prediction(settled.vector, delta, residual)
 
     # ------------------------------------------------------------------
     # Event injection
@@ -358,6 +417,18 @@ class CyberGenesisEngine:
     # Accessors
     # ------------------------------------------------------------------
 
+    @property
+    def is_calibrating(self) -> bool:
+        """Whether SENSE is still learning this system's baseline X_c*."""
+        return self._sense.is_calibrating
+
+    def get_calibration_progress(self) -> tuple[int, int]:
+        """Return (observations_taken, observations_required) for calibration."""
+        return (
+            len(self._sense._calibration_samples),
+            self._config.baseline_calibration_ticks,
+        )
+
     def get_system_status(self) -> SystemStatus:
         """Return the latest system status."""
         if not self._assessment_history:
@@ -394,8 +465,21 @@ class CyberGenesisEngine:
             "active_domains": latest.domain_vector.active_domains,
             "actions_count": len(latest.recommended_actions),
             "encrypt_classification": latest.encrypt_classification.value,
-            "barrier_value": latest.barrier_value,
-            "barrier_invariant": latest.barrier_invariant,
+            "coherence": latest.coherence,
+            "mean_coherence": self._coherence.mean_coherence,
+            "permission_debt": latest.permission_debt,
+            "origin_hypotheses": [
+                {
+                    "dimension": h.name,
+                    "score": round(h.score, 4),
+                    "explains": round(h.explained_fraction, 4),
+                }
+                for h in latest.origin_hypotheses
+            ],
+            "nullification_cost": {
+                DIMENSION_NAMES[i]: round(float(latest.nullification_cost[i]), 4)
+                for i in range(NUM_DIMENSIONS)
+            },
             "time_to_boundary": latest.time_to_boundary,
             "safety_conditions": latest.safety_conditions,
             "regeneration_energy": latest.regeneration_energy,
@@ -421,7 +505,11 @@ class CyberGenesisEngine:
         self._last_dr = 0.0
         self._last_dr_adjusted = 0.0
         self._last_tick_time = time.time()
-        self._previous_state = None
+
+        self._coherence.reset()
+        self._transform = TransformationMatrix()
+        self._origin.set_matrix(self._transform.as_array())
+        self._converge.set_coupling_matrix(self._transform.as_array())
 
         self._sense.reset()
         self._diverge.reset()

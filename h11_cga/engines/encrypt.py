@@ -41,10 +41,16 @@ class EncryptICEngine:
         state: SecurityState,
         baseline: SecurityBaseline,
         cci: float,
+        permission: float | None = None,
     ) -> EncryptICClassification:
-        """Classify input based on permission and divergence context."""
-        # Compute permission via genesis
-        permission, _details = self.genesis.evaluate(state, baseline, cci)
+        """Classify input based on permission and divergence context.
+
+        ``permission`` may be supplied by a caller that has already evaluated
+        Π_c this cycle. Genesis carries permission debt across ticks, so
+        evaluating it twice per cycle would charge the same tick twice.
+        """
+        if permission is None:
+            permission, _details = self.genesis.evaluate(state, baseline, cci)
 
         if permission < 0.5:
             return EncryptICClassification.UNAUTHORIZED
@@ -70,10 +76,8 @@ class EncryptICEngine:
         Returns:
             (classification, permission, domain_metric, domain_vector)
         """
-        classification = self.classify_input(state, baseline, cci)
-
-        # Compute permission
         permission, _details = self.genesis.evaluate(state, baseline, cci)
+        classification = self.classify_input(state, baseline, cci, permission=permission)
 
         # Persist Encrypt-IC domain policy: unauthorized → N_0 (all domains
         # nullified); authorized → restore full activation if previously wiped.

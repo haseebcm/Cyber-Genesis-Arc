@@ -55,6 +55,21 @@ class TransformationMatrix:
         if src_idx is not None and tgt_idx is not None:
             self._matrix[src_idx, tgt_idx] = float(value)
 
+    def propagate_delta(
+        self,
+        perturbation: np.ndarray,
+        dt: float = 1.0,
+        domain_vector: DomainVector | None = None,
+    ) -> np.ndarray:
+        """
+        Compute the cascade increment produced by a perturbation.
+
+        T_c is indexed [source, target], so influence flows along columns:
+        the arrival at target j is Σ_i T_c[i, j] · p_i, i.e. T_cᵀ @ p.
+        """
+        activations = domain_vector.activations if domain_vector else np.ones(NUM_DIMENSIONS)
+        return dt * (self._matrix.T @ perturbation) * activations
+
     def propagate_state(
         self,
         state: SecurityState,
@@ -64,15 +79,24 @@ class TransformationMatrix:
     ) -> SecurityState:
         """
         Propagate state forward applying matrix influences, gated by domain activations:
-            X_c(t+dt) = clip(X_c(t) + dt · (T_c @ perturbation) ⊙ a)
+            X_c(t+dt) = clip(X_c(t) + dt · (T_cᵀ @ perturbation) ⊙ a)
         """
-        activations = domain_vector.activations if domain_vector else np.ones(NUM_DIMENSIONS)
-        delta = dt * (self._matrix @ perturbation) * activations
+        delta = self.propagate_delta(perturbation, dt=dt, domain_vector=domain_vector)
 
         new_state = state.copy()
         new_state.vector = np.clip(state.vector + delta, 0.0, 1.0)
         new_state.timestamp = state.timestamp + dt if state.timestamp else time.time()
         return new_state
+
+    def apply_correction(self, delta: np.ndarray, max_influence: float = 1.0) -> None:
+        """Adjust coupling in place, keeping the diagonal empty and values bounded."""
+        corrected = self._matrix + np.asarray(delta, dtype=np.float64)
+        np.fill_diagonal(corrected, 0.0)
+        self._matrix = np.clip(corrected, 0.0, max_influence)
+
+    def out_influence(self) -> np.ndarray:
+        """Total outgoing influence per dimension — row sums of T_c."""
+        return np.sum(self._matrix, axis=1)
 
     def find_cascade_path(
         self,

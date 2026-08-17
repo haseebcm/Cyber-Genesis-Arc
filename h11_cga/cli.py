@@ -12,30 +12,38 @@ import argparse
 import sys
 import time
 
+import numpy as np
+
 from h11_cga import (
     CyberGenesisEngine,
     TelemetryIngestionHub,
     SystemAdapter,
     EBPFNetworkProbe,
+    CGAConfig,
     DIMENSION_NAMES,
     SystemStatus,
 )
 
 
-def run_monitor(duration: float = 0.0, interval: float = 1.0) -> None:
+def run_monitor(
+    duration: float = 0.0, interval: float = 1.0, calibrate_ticks: int = 10
+) -> None:
     """
     Run the H¹¹-CGA live host monitor.
 
     Args:
         duration: Run time in seconds (0 = run indefinitely until Ctrl+C).
         interval: Polling interval between ticks in seconds.
+        calibrate_ticks: Warmup ticks used to learn this host's baseline.
     """
     print("\n" + "=" * 76)
     print("  H11 CYBER GENESIS ARCHITECTURE (H11-CGA) -- LIVE SYSTEM MONITOR")
     print("=" * 76)
 
-    # Initialize Engine & Hub
-    engine = CyberGenesisEngine()
+    # A live host never idles at the ideal all-nominal vector, so learn its
+    # working baseline before treating divergence as a threat signal.
+    config = CGAConfig(baseline_calibration_ticks=max(0, calibrate_ticks))
+    engine = CyberGenesisEngine(config)
     hub = TelemetryIngestionHub()
 
     # Register adapters
@@ -44,10 +52,15 @@ def run_monitor(duration: float = 0.0, interval: float = 1.0) -> None:
     hub.register_adapter(sys_adapter)
     hub.register_adapter(ebpf_adapter)
 
-    print(f"  Initialized CyberGenesisEngine with {len(hub.registered_adapters)} active adapters:")
-    for name in hub.registered_adapters:
-        print(f"   -> {name}")
+    measuring = hub.measuring_adapters
+    print(f"  Initialized CyberGenesisEngine with {len(measuring)} measuring adapter(s):")
+    for line in hub.describe_sources():
+        print(f"   -> {line}")
+    if not measuring:
+        print("   !! No adapter has a reachable data source; telemetry will be empty.")
     print(f"  Polling interval: {interval}s")
+    if calibrate_ticks > 0:
+        print(f"  Baseline calibration: learning host baseline over {calibrate_ticks} ticks")
     print("=" * 76 + "\n")
 
     start_time = time.time()
@@ -65,14 +78,22 @@ def run_monitor(duration: float = 0.0, interval: float = 1.0) -> None:
             status = assessment.status.value
             gc = assessment.genesis_value
 
+            if engine.is_calibrating:
+                observed, required = engine.get_calibration_progress()
+                print(f"[Tick #{tick_count:04d}] CALIBRATING baseline ({observed}/{required})")
+                if duration > 0 and (time.time() - start_time) >= duration:
+                    break
+                time.sleep(interval)
+                continue
+
             print(f"[Tick #{tick_count:04d}] Status: {status:12s} | G_c(t) = {gc:+.4f} | "
                   f"DR_c = {assessment.dr_value:.4f} | HSA = {assessment.hsa_coordinate:+.4f} [{assessment.hsa_zone.value}]")
 
-            # Print degraded dimensions if any
+            # Report dimensions that drifted outside the learned envelope
             degraded = []
             for i, name in enumerate(DIMENSION_NAMES):
                 val = assessment.current_state[i]
-                if val < 0.9:
+                if val < assessment.baseline.lower_bound[i]:
                     degraded.append((name, val))
 
             if degraded:
@@ -80,6 +101,22 @@ def run_monitor(duration: float = 0.0, interval: float = 1.0) -> None:
                 for name, val in sorted(degraded, key=lambda x: x[1]):
                     bar = "#" * int(val * 20) + "-" * (20 - int(val * 20))
                     print(f"     * {name:15s} [{bar}] {val:.3f}")
+
+            if assessment.origin_hypotheses:
+                top = assessment.origin_hypotheses[0]
+                print(f"   Likely origin:  {top.name} "
+                      f"(score {top.score:.3f}, explains {top.explained_fraction:.0%})")
+
+            # Low coherence means the host moved in ways T_c does not model,
+            # which is worth surfacing even when divergence itself is small.
+            if assessment.coherence < 0.9:
+                worst_idx = int(np.argmax(np.abs(assessment.unexplained_vector)))
+                print(f"   Model coherence: {assessment.coherence:.3f} "
+                      f"(largest unexplained move: {DIMENSION_NAMES[worst_idx]})")
+
+            if assessment.permission_debt > 0:
+                print(f"   Permission debt: {assessment.permission_debt:.2f} "
+                      f"(trust withheld until repaid)")
 
             if assessment.recommended_actions:
                 print(f"   Recommended Actions ({len(assessment.recommended_actions)}):")
@@ -117,9 +154,19 @@ def main() -> None:
         default=1.0,
         help="Telemetry collection interval in seconds (default: 1.0).",
     )
+    parser.add_argument(
+        "--calibrate",
+        type=int,
+        default=10,
+        help="Warmup ticks used to learn this host's baseline (0 = assume ideal).",
+    )
     args = parser.parse_args()
 
-    run_monitor(duration=args.duration, interval=args.interval)
+    run_monitor(
+        duration=args.duration,
+        interval=args.interval,
+        calibrate_ticks=args.calibrate,
+    )
 
 
 if __name__ == "__main__":

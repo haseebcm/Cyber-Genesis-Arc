@@ -7,7 +7,6 @@ Demonstrates the ultimate hardened capabilities of H¹¹-CGA:
 2. Algebraic Self-Healing State Projection R_genesis(X_c)
 3. eBPF XDP Wire-Speed Packet Drop & Kernel Process Quarantine
 4. Swarm AI Guardrails & Semantic Entropy Injection Filter
-5. 20-Scenario Advanced Adversarial Challenge Execution
 """
 
 import time
@@ -21,7 +20,6 @@ from h11_cga import (
     SwarmAIGuardrailEngine,
     AIToolRequest,
     AIToolCategory,
-    AdvancedChallenge,
     DIMENSION_NAMES,
 )
 
@@ -98,24 +96,6 @@ def main() -> None:
     decision_swarm = swarm.inspect_swarm_request("swarm_team_omega", req_swarm)
     print(f"  Swarm Tool Inspection: Permitted={decision_swarm.permitted} | Nullified (N_0)={decision_swarm.nullified}")
     print(f"  Rejection Reason: {decision_swarm.reason}")
-
-    # 5. 20-Scenario Advanced Adversarial Challenge Suite
-    print("\n" + "=" * 80)
-    print("[PART 5] Executing 20-Scenario Advanced Adversarial Attack Challenge Suite...")
-    print("=" * 80)
-
-    challenge = AdvancedChallenge()
-    report = challenge.execute_full_challenge()
-
-    print(f"\n  CHALLENGE SUITE SUMMARY:")
-    print(f"    Total Attack Campaigns:     {report.total_scenarios}")
-    print(f"    H11 Detection Rate:         {report.detection_rate_pct:.1f}%")
-    print(f"    Self-Healing Recovery Rate: {report.self_healing_recovery_pct:.1f}%")
-    print(f"    Avg Speedup vs SIEM/EDR:    {report.avg_speedup_vs_siem:.2f}x faster\n")
-
-    print("  Top 5 Challenge Scenarios Executed:")
-    for res in report.results[:5]:
-        print(f"    [{res.scenario_id:02d}] {res.name:42s} | Speedup: {res.detection_speedup_vs_siem:5.2f}x | Energy Restored: {res.energy_restored:.4f}")
 
     print(f"\n{'=' * 80}")
     print("  * H11-CGA Phase 5 Advanced Edition Master Demo complete.")

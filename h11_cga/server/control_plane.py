@@ -139,9 +139,23 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
                 "cci_value": float(assessment.cci_value),
                 "permission": float(assessment.permission),
                 "encrypt_classification": assessment.encrypt_classification.value,
-                "barrier_value": float(assessment.barrier_value),
-                "barrier_invariant": bool(assessment.barrier_invariant),
                 "domain_metric": float(assessment.domain_metric),
+                "coherence": float(assessment.coherence),
+                "permission_debt": float(assessment.permission_debt),
+                "origin_hypotheses": [
+                    {
+                        "dimension": h.name,
+                        "score": round(h.score, 4),
+                        "explains": round(h.explained_fraction, 4),
+                    }
+                    for h in assessment.origin_hypotheses
+                ],
+                "nullification_cost": [
+                    float(x) for x in assessment.nullification_cost
+                ],
+                "unexplained_vector": [
+                    float(x) for x in assessment.unexplained_vector
+                ],
                 "state_vector": [float(x) for x in assessment.current_state.vector],
                 "dimension_names": list(DIMENSION_NAMES),
                 "recommended_actions": actions,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from h11_cga.types import (
     SecurityState, SecurityBaseline, SecurityOrigin,
     DivergenceResult, DivergenceClassification,
-    DomainVector, CascadePath,
+    DomainVector, CascadePath, OriginHypothesis,
     HSAZone, SystemStatus,
     ActionType, ActionUrgency, ResponseAction,
     ThreatAssessment, SecurityEvent, TelemetryInput,
@@ -14,12 +14,13 @@ from h11_cga.types import (
 from h11_cga.orchestrator import CyberGenesisEngine
 from h11_cga.core.transformation_matrix import TransformationMatrix
 from h11_cga.core.cyber_genesis_equation import CyberGenesisEquation
-from h11_cga.core.barrier import BarrierCertificate
 from h11_cga.core.advanced import (
     StateIntegrityProver,
     SelfHealingProjector,
     DynamicCouplingEngine,
 )
+from h11_cga.core.origin import OriginTracer
+from h11_cga.core.coherence import CoherenceAuditor
 
 from h11_cga.adapters import (
     BaseTelemetryAdapter,
@@ -50,12 +51,6 @@ from h11_cga.benchmarks import (
     ScenarioResult,
     BenchmarkReport,
 )
-from h11_cga.benchmarks.challenge import (
-    AdvancedChallenge,
-    ChallengeScenarioResult,
-    ChallengeReport,
-)
-
 from h11_cga.license import (
     LicenseManager,
     LicenseTier,
@@ -66,7 +61,7 @@ from h11_cga.server import (
     ControlPlaneServer,
 )
 
-__version__ = '2.0.0-ADVANCED'
+__version__ = '3.0.0-REFLEXIVE'
 
 __all__ = [
     'SecurityState',
@@ -76,6 +71,7 @@ __all__ = [
     'DivergenceClassification',
     'DomainVector',
     'CascadePath',
+    'OriginHypothesis',
     'HSAZone',
     'SystemStatus',
     'ActionType',
@@ -93,10 +89,11 @@ __all__ = [
     'CyberGenesisEngine',
     'TransformationMatrix',
     'CyberGenesisEquation',
-    'BarrierCertificate',
     'StateIntegrityProver',
     'SelfHealingProjector',
     'DynamicCouplingEngine',
+    'OriginTracer',
+    'CoherenceAuditor',
     'BaseTelemetryAdapter',
     'SystemAdapter',
     'KubernetesAdapter',
@@ -114,9 +111,6 @@ __all__ = [
     'RedTeamBenchmarkEngine',
     'ScenarioResult',
     'BenchmarkReport',
-    'AdvancedChallenge',
-    'ChallengeScenarioResult',
-    'ChallengeReport',
     'LicenseManager',
     'LicenseTier',
     'FeatureFlag',

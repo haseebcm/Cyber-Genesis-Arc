@@ -46,13 +46,16 @@ class CascadeAnalyzer:
     def compute_cci(self, errors: np.ndarray, weights: np.ndarray | None = None) -> float:
         """
         Computes the Cascade Collapse Index CCI_c(t).
-        CCI_c(t) = w^T e_c(t) + γ ||A_c e_c(t)||^2
+        CCI_c(t) = w^T e_c(t) + γ ||A_c^T e_c(t)||^2
+
+        A_c is indexed [source, target], so error arriving at a target is
+        summed down its column — the transpose product.
         """
         if weights is None:
             weights = np.ones(NUM_DIMENSIONS)
             
         linear_term = float(np.dot(weights, errors))
-        coupled_errors = self._coupling_matrix @ errors
+        coupled_errors = self._coupling_matrix.T @ errors
         quadratic_term = self.config.cci_coupling_gamma * float(np.sum(coupled_errors**2))
         return linear_term + quadratic_term
 

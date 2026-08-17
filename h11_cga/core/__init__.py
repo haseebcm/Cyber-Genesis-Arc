@@ -11,7 +11,8 @@ from h11_cga.core.genesis import GenesisPermission
 from h11_cga.core.domain_nullification import DomainNullifier
 from h11_cga.core.transformation_matrix import TransformationMatrix
 from h11_cga.core.cyber_genesis_equation import CyberGenesisEquation
-from h11_cga.core.barrier import BarrierCertificate
+from h11_cga.core.origin import OriginTracer
+from h11_cga.core.coherence import CoherenceAuditor
 
 __all__ = [
     "SecurityStateSpace",
@@ -24,5 +25,6 @@ __all__ = [
     "DomainNullifier",
     "TransformationMatrix",
     "CyberGenesisEquation",
-    "BarrierCertificate",
+    "OriginTracer",
+    "CoherenceAuditor",
 ]

@@ -130,11 +130,22 @@ H¹¹-CGA includes production-grade **Virtual Interface Engine (VIE) Adapters** 
 
 | Adapter | Source | Key Metrics Mapped to 11-D Vector |
 |---------|--------|------------------------------------|
-| **`SystemAdapter`** | Host OS (`psutil`/`/proc`) | CPU utilization (`Compute`), RAM/swap (`Memory`), disk I/O (`Data`), open sockets (`Network`), running processes (`Execution`), active logins (`Identity`), uptime stability (`Trust`). |
-| **`KubernetesAdapter`** | Container / K8s Cluster | Pod restarts & CrashLoops (`Recovery`/`Execution`), API latency (`Governance`), 401/403 unauthorized calls (`Authorization`), resource quotas (`Resource`). |
-| **`EBPFNetworkProbe`** | Linux eBPF / Socket Flows | SYN flood DDoS ratios (`Network`), unauthorized egress connection attempts (`Network`/`Authorization`), port scan bursts (`Execution`). |
+| **`SystemAdapter`** | Host OS (`psutil`) | CPU utilization (`Compute`), RAM (`Memory`), swap pressure (`Recovery`), disk capacity (`Resource`), disk I/O throughput rate (`Data`), open sockets (`Network`), running processes (`Execution`), active logins (`Identity`). |
+| **`KubernetesAdapter`** | Container / K8s Cluster | Pod restarts & CrashLoops (`Recovery`/`Execution`), API latency (`Governance`), 401/403 unauthorized calls (`Authorization`), resource quotas (`Resource`). Requires a `metrics_provider`; otherwise reports itself unavailable. |
+| **`EBPFNetworkProbe`** | Linux kernel counters (`/proc/net/snmp`, `/proc/net/netstat`) | SYN-backlog drops and connection-attempt failures (`Network`), packet throughput rate (`Resource`). Linux-only; skipped elsewhere. No eBPF/XDP program is loaded yet. |
 | **`LogAdapter`** | Syslog / Auth / JSON Trails | Parses SSH auth failures, root session escalations, kernel OOM killers, segfaults, and JSON audit events into `SecurityEvent` objects with 11-D impact vectors. |
-| **`TelemetryIngestionHub`** | Multi-Source Hub | Manages and aggregates metrics from all registered active adapters, merging raw dimension values and event feeds into unified `TelemetryInput` streams. |
+| **`TelemetryIngestionHub`** | Multi-Source Hub | Aggregates all reachable adapters, averaging each dimension only across adapters that actually measured it, and records per-dimension provenance. |
+
+### Measurement Contract
+
+An adapter reports a dimension only if it genuinely measures it. Unmeasured dimensions are **omitted**, never padded with nominal constants — padding would dilute real signal once the hub averages across sources. An adapter whose data source is unreachable (no cluster configured, non-Linux kernel) reports `is_available() == False` and is skipped entirely. Behavioural dimensions such as `Authorization`, `Trust`, and `Governance` have no honest host-OS metric, so they are driven by event adapters and by cross-dimensional propagation through `T_c`.
+
+Inspect what is really being measured at any time:
+
+```python
+hub.describe_sources()   # per-adapter MEASURING / SKIPPED status
+hub.last_provenance      # {dimension: [adapters that measured it]}
+```
 
 ### Live Host Monitoring Daemon (`h11-monitor`)
 
@@ -146,18 +157,36 @@ h11-monitor
 
 # Run monitor for 30 seconds with 0.5s polling interval
 h11-monitor --duration 30 --interval 0.5
+
+# Learn this host's baseline over 20 ticks before scoring divergence
+h11-monitor --calibrate 20
+```
+
+#### Baseline Calibration
+
+A real host never idles at the ideal all-nominal vector $X_c^* = \mathbf{1}$ — a healthy laptop may sit at 40% free RAM and 70% disk usage. Scoring divergence against a perfect baseline therefore condemns normal load as `EMERGENCY`.
+
+The monitor first **observes** the host for `--calibrate` ticks, sets $X_c^*$ to the observed mean, and derives the envelope $[L_c, U_c]$ from observed variance. This is the *rebaseline* step of the regeneration layer. After warmup, divergence measures deviation from how this system actually behaves.
+
+Calibration is **off by default** in `CGAConfig`, so simulation and attack injection continue to work against the ideal baseline:
+
+```python
+config = CGAConfig(baseline_calibration_ticks=20)
+engine = CyberGenesisEngine(config)
+engine.is_calibrating            # True until warmup completes
+engine.get_calibration_progress()  # (observed, required)
+```
+
 ---
 
-## Phase 3: AI Guardrails, Red-Team Benchmarks & Control Barrier Certificates
+## Phase 3: AI Guardrails & Red-Team Benchmarks
 
-Phase 3 extends H¹¹-CGA into **Autonomous AI Safety Guardrails**, **Red-Team Attack Benchmarking**, and **Formal Verification**:
+Phase 3 extends H¹¹-CGA into **Autonomous AI Safety Guardrails** and **Red-Team Attack Benchmarking**:
 
 | Component | Subpackage | Function & Value |
 |-----------|------------|------------------|
 | **`AIAgentGuardrailEngine`** | `h11_cga.ai_guardrails` | Intercepts proposed autonomous AI agent tool calls, function calls, and system executions. Projects their 11-D impact vector before execution. If prompt injection or privilege escalation is detected ($\Pi_c = 0$), Encrypt-IC instantly nullifies execution to $N_0$. |
 | **`RedTeamBenchmarkEngine`** | `h11_cga.benchmarks` | Executes 10 complex multi-stage attack scenarios (APT cascades, zero-day code executions, ransomware bursts, insider threats, prompt injections) comparing H¹¹-CGA against traditional rule-based SIEM/EDR. Demonstrates **4.90x faster detection speedup** and **90.4% cascade suppression**. |
-| **`BarrierCertificate`** | `h11_cga.core` | Computes Control Barrier Functions (CBFs) $h(X_c) \ge 0$ to mathematically verify forward-invariance of the safe security manifold $\Omega_c$. |
-
 ### AI Guardrail Quickstart
 
 ```python
@@ -177,6 +206,93 @@ decision = guardrail.inspect_and_govern(request)
 if not decision.permitted:
     print(f"Intercepted & Nullified (N_0): {decision.reason}")
 ```
+
+---
+
+## Phase 3.0: Reflexive Operators
+
+Phases 1 and 2 gave the architecture a model of the system. Phase 3.0 turns
+that model back on itself. Every operator below is derived from quantities
+H¹¹-CGA already computes — no external estimator is introduced.
+
+| Operator | Symbol | Question it answers |
+|----------|--------|---------------------|
+| **`OriginTracer`** | Ψ_c | The divergence pattern looks like *this*. Which dimension started it? |
+| **`CoherenceAuditor`** | Λ_c | T_c claimed the state would move *there*. Did it? |
+| **Scope cost** | K_c | If I nullify this domain, what do I stop being able to see? |
+| **Permission debt** | — | Π_c just denied. How long must the system stay clean before it is trusted again? |
+
+### Ψ_c — Origin attribution
+
+CCI runs T_c forwards: given damage here, where does it spread? Ψ_c runs the
+same matrix backwards. For each dimension it builds the cascade signature that
+dimension would produce if hit alone,
+
+$$s_i = \sum_{h=0}^{d} \lambda^h (T_c^{\top})^h u_i$$
+
+then ranks signatures by alignment with the divergence actually measured. The
+coupling matrix becomes an attribution instrument without introducing a second
+model of the system.
+
+```python
+assessment = engine.inject_attack("ransomware", severity=0.6)
+for h in assessment.origin_hypotheses:
+    print(h.name, round(h.score, 3))
+# Data 0.735
+# Execution 0.663
+# Recovery 0.627
+```
+
+### Λ_c — Cascade coherence
+
+Each tick, T_c makes an implicit prediction about where the state moves next.
+The architecture never checked it. Λ_c records the prediction and grades it on
+the following tick:
+
+$$\Lambda_c = 1 - \frac{\lVert x_{\text{actual}} - x_{\text{pred}} \rVert}{\lVert x_{\text{actual}} - x_{\text{prev}} \rVert + \lVert x_{\text{actual}} - x_{\text{pred}} \rVert}$$
+
+A score of 1.0 means the coupling model explained the motion exactly. 0.5 means
+the model predicted stillness and the system moved anyway. Below 0.5 means it
+predicted the wrong direction. **Low coherence is a signal in its own right**,
+independent of divergence magnitude, because it marks behaviour the
+architecture cannot currently account for.
+
+The per-dimension miss also says *where* the model was wrong, which is enough to
+correct the coupling that produced it. Set `coupling_adaptation_rate > 0` and
+T_c descends its own prediction error:
+
+$$\Delta T_c[i,j] = \eta \cdot r_i \cdot \text{unexplained}_j$$
+
+This is **off by default**. The authored coupling encodes intent, and letting a
+live host rewrite it changes what the cascade math means.
+
+### K_c — Scope cost
+
+`auto_nullify_irrelevant` previously dropped any dimension below a divergence
+threshold. Quiet is not the same as safe: a silent dimension that feeds live
+domains is about to become loud. K_c prices the blind spot before it is bought:
+
+$$K_i = e_i \cdot \Big(1 + \sum_j T_c[i,j] \cdot a_j\Big)$$
+
+A quiet leaf is cheap to stop watching. A quiet hub is not.
+
+### Permission debt
+
+Π_c is binary and instantaneous — it snaps back to 1 the moment conditions
+clear, so a state hovering at the envelope edge makes it oscillate. Setting
+`permission_debt_accrual > 0` gives the gate hysteresis: denied ticks accrue
+debt, and trust is withheld until clean ticks repay it. Also off by default,
+since it changes the semantics of the gate.
+
+### Corrections shipped alongside
+
+- **T_c orientation.** `get_influence`, `set_influence`, and `find_cascade_path`
+  read the matrix as `[source, target]`, but `propagate_state` and `compute_cci`
+  used `T_c @ p`, which reads it as `[target, source]`. Cascades were flowing up
+  their own edges. Both now use `T_cᵀ @ p`.
+- **Double permission evaluation.** `enforce_boundary` called `genesis.evaluate`
+  twice per cycle. Harmless while Π_c was stateless; with permission debt it
+  would charge the same tick twice.
 
 ---
 
@@ -335,9 +451,10 @@ h11_cga/
 │   ├── cci.py               # CCI Cascade Collapse Index
 │   ├── genesis.py           # Genesis Permission Operator
 │   ├── domain_nullification.py  # Domain Nullification
-│   ├── barrier.py           # Control Barrier Certificates (CBF)
 │   ├── transformation_matrix.py # 11×11 Matrix (121 nodes)
-│   └── cyber_genesis_equation.py # The Master Equation
+│   ├── cyber_genesis_equation.py # The Master Equation
+│   ├── origin.py            # Ψ_c Origin attribution (T_c run backwards)
+│   └── coherence.py         # Λ_c Cascade coherence & T_c self-correction
 └── engines/
     ├── sense.py              # H¹¹ SENSE engine
     ├── diverge.py            # H¹¹ DIVERGE engine

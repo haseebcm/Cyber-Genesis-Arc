@@ -60,17 +60,62 @@ class DomainNullifier:
         """Returns the ratio of actively engaged dimensions vs total dimensions."""
         return self._domain_vector.complexity_ratio
 
-    def auto_nullify_irrelevant(self, divergence: np.ndarray, threshold: float = 0.01) -> list[str]:
+    def compute_nullification_cost(
+        self,
+        divergence: np.ndarray,
+        coupling_matrix: np.ndarray,
+        domain_vector: DomainVector | None = None,
+    ) -> np.ndarray:
         """
-        Automatically shuts down evaluation of domains where divergence is below the threshold,
-        freeing resources.
+        Compute K_c — the visibility forfeited by nullifying each dimension.
+
+        Nullifying a domain is not free even when it looks quiet. A dimension
+        that currently carries error costs you that error directly, and a
+        dimension that feeds still-active domains costs you early sight of
+        everything downstream of it:
+
+            K_i = e_i · (1 + Σ_j T_c[i, j] · a_j)
+
+        A quiet leaf is cheap to drop. A quiet hub that is about to push
+        damage into live domains is not.
         """
+        dv = domain_vector if domain_vector is not None else self._domain_vector
+        errors = np.abs(np.asarray(divergence, dtype=np.float64))
+        matrix = np.asarray(coupling_matrix, dtype=np.float64)
+
+        downstream = matrix @ dv.activations
+        return errors * (1.0 + downstream)
+
+    def auto_nullify_irrelevant(
+        self,
+        divergence: np.ndarray,
+        threshold: float = 0.01,
+        coupling_matrix: np.ndarray | None = None,
+        max_cost: float | None = None,
+    ) -> list[str]:
+        """
+        Shut down evaluation of domains that are quiet and cheap to stop watching.
+
+        Without a coupling matrix this falls back to a pure divergence
+        threshold. With one, a domain must also be cheap under K_c — quiet
+        alone is not sufficient if the domain feeds active dimensions.
+        """
+        costs = None
+        if coupling_matrix is not None and max_cost is not None:
+            costs = self.compute_nullification_cost(divergence, coupling_matrix)
+
         nullified = []
         for i in range(NUM_DIMENSIONS):
-            if abs(divergence[i]) < threshold and self._domain_vector.activations[i] > 0:
-                self.nullify_domain(i)
-                nullified.append(DIMENSION_NAMES[i])
-        
+            if self._domain_vector.activations[i] <= 0:
+                continue
+            if abs(divergence[i]) >= threshold:
+                continue
+            if costs is not None and costs[i] > max_cost:
+                continue
+
+            self.nullify_domain(i)
+            nullified.append(DIMENSION_NAMES[i])
+
         if nullified:
             logger.debug(f"Auto-nullified {len(nullified)} irrelevant domains: {nullified}")
         return nullified

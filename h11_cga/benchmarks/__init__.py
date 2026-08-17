@@ -2,7 +2,7 @@
 H¹¹-CGA Red-Team Benchmark Subpackage
 ======================================
 
-Exports RedTeamBenchmarkEngine, AdvancedChallenge, ChallengeScenarioResult, and ChallengeReport.
+Exports RedTeamBenchmarkEngine, ScenarioResult, and BenchmarkReport.
 """
 
 from h11_cga.benchmarks.redteam_engine import (
@@ -10,17 +10,9 @@ from h11_cga.benchmarks.redteam_engine import (
     ScenarioResult,
     BenchmarkReport,
 )
-from h11_cga.benchmarks.challenge import (
-    AdvancedChallenge,
-    ChallengeScenarioResult,
-    ChallengeReport,
-)
 
 __all__ = [
     "RedTeamBenchmarkEngine",
     "ScenarioResult",
     "BenchmarkReport",
-    "AdvancedChallenge",
-    "ChallengeScenarioResult",
-    "ChallengeReport",
 ]

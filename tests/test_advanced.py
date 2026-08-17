@@ -3,7 +3,7 @@ H¹¹ Advanced Edition Unit Test Suite
 =====================================
 Tests for StateIntegrityProver, SelfHealingProjector, DynamicCouplingEngine,
 SwarmAIGuardrailEngine, SemanticEntropyFilter, XDPKernelDropEngine,
-ProcessQuarantineEngine, and AdvancedChallenge.
+and ProcessQuarantineEngine.
 """
 
 import pytest
@@ -24,7 +24,6 @@ from h11_cga import (
     AIToolCategory,
     XDPKernelDropEngine,
     ProcessQuarantineEngine,
-    AdvancedChallenge,
     NUM_DIMENSIONS,
 )
 
@@ -120,11 +119,3 @@ def test_process_quarantine_engine():
     assert pq.release_process(1234) is True
 
 
-def test_advanced_challenge():
-    challenge = AdvancedChallenge()
-    report = challenge.execute_full_challenge()
-
-    assert report.total_scenarios == 20
-    assert report.detection_rate_pct == 100.0
-    assert report.self_healing_recovery_pct == 100.0
-    assert report.avg_speedup_vs_siem > 3.0

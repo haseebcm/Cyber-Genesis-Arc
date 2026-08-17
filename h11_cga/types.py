@@ -362,6 +362,32 @@ class DomainVector:
 
 
 @dataclass
+class OriginHypothesis:
+    """A candidate origin for an observed divergence pattern (Ψ_c)."""
+
+    dimension: int = -1
+    """Index of the dimension proposed as the origin."""
+
+    name: str = ""
+    """Human-readable dimension name."""
+
+    score: float = 0.0
+    """Alignment between this origin's cascade signature and what was measured."""
+
+    explained_fraction: float = 0.0
+    """Share of the observed divergence magnitude this origin accounts for."""
+
+    observed_error: float = 0.0
+    """Divergence measured on the origin dimension itself."""
+
+    def __repr__(self) -> str:
+        return (
+            f"OriginHypothesis({self.name}, score={self.score:.4f}, "
+            f"explains={self.explained_fraction:.2%})"
+        )
+
+
+@dataclass
 class CascadePath:
     """A single cascade propagation path through the transformation matrix."""
 
@@ -473,11 +499,29 @@ class ThreatAssessment:
     encrypt_classification: EncryptICClassification = EncryptICClassification.AUTHORIZED
     """Encrypt-IC boundary classification for this cycle."""
 
-    # --- Barrier / Regeneration (closed loop) ---
-    barrier_value: float = 1.0
-    """h(X_c) — Control Barrier Function; ≥ 0 inside Ω_c."""
-    barrier_invariant: bool = True
-    """Whether dh/dt + γ·h(X_c) ≥ 0 (forward-invariance of Ω_c)."""
+    # --- Origin attribution (Ψ_c) ---
+    origin_hypotheses: list[OriginHypothesis] = field(default_factory=list)
+    """Candidate origins for this cycle's divergence, best first."""
+
+    # --- Cascade coherence (Λ_c) ---
+    coherence: float = 1.0
+    """Λ_c — how well T_c predicted the state's actual motion this tick."""
+    unexplained_vector: np.ndarray = field(
+        default_factory=lambda: np.zeros(NUM_DIMENSIONS)
+    )
+    """Per-dimension motion T_c did not account for."""
+
+    # --- Scope cost (K_c) ---
+    nullification_cost: np.ndarray = field(
+        default_factory=lambda: np.zeros(NUM_DIMENSIONS)
+    )
+    """K_c — visibility forfeited by nullifying each dimension."""
+
+    # --- Permission debt ---
+    permission_debt: float = 0.0
+    """Outstanding caution owed before Π_c may return to 1."""
+
+    # --- Regeneration (closed loop) ---
     time_to_boundary: float | None = None
     """HSA linear estimate of ticks-to-singularity; None if receding."""
     safety_conditions: dict[str, bool] = field(default_factory=dict)
@@ -510,8 +554,9 @@ class ThreatAssessment:
             "cci_subcritical": self.cci_subcritical,
             "domain_metric": round(self.domain_metric, 4),
             "encrypt_classification": self.encrypt_classification.value,
-            "barrier_value": round(self.barrier_value, 4),
-            "barrier_invariant": self.barrier_invariant,
+            "coherence": round(self.coherence, 4),
+            "permission_debt": round(self.permission_debt, 4),
+            "likely_origin": self.origin_hypotheses[0].name if self.origin_hypotheses else None,
             "num_actions": len(self.recommended_actions),
         }
 
@@ -655,6 +700,21 @@ class CGAConfig:
     buffer_recovery_rate: float = 0.05
     """Rate at which buffer recovers when divergence decreases."""
 
+    # --- Baseline calibration (Regeneration: observe → rebaseline) ---
+    baseline_calibration_ticks: int = 0
+    """Warmup ticks used to learn X_c* from observed telemetry (0 = disabled).
+
+    Simulation and attack-injection work against the ideal all-nominal
+    baseline. Live hosts never sit at 1.0, so they must learn their own
+    reference before divergence means anything.
+    """
+
+    baseline_tolerance_sigmas: float = 3.0
+    """Envelope half-width in standard deviations of the observed baseline."""
+
+    baseline_min_tolerance: float = 0.1
+    """Floor on envelope half-width, so quiet dimensions stay stable."""
+
     # --- Closed loop (RE-EVAL → SENSE) ---
     closed_loop_enabled: bool = True
     """Apply ENCRYPT/CONVERGE outputs back into SENSE for the next cycle."""
@@ -667,6 +727,48 @@ class CGAConfig:
 
     regeneration_enabled: bool = True
     """Apply R_genesis projection when recovering inside a controlled HSA zone."""
+
+    # --- Origin attribution (Ψ_c) ---
+    origin_trace_enabled: bool = True
+    """Attribute each cycle's divergence to a most-likely origin dimension."""
+
+    origin_decay: float = 0.6
+    """Per-hop attenuation when building a cascade signature."""
+
+    origin_depth: int = 3
+    """Cascade hops included in a signature."""
+
+    # --- Cascade coherence (Λ_c) ---
+    coherence_enabled: bool = True
+    """Grade T_c's prediction against the state's actual motion each tick."""
+
+    coupling_adaptation_rate: float = 0.0
+    """Correct T_c from coherence misses (0 = keep the authored matrix fixed).
+
+    Left off by default: the authored coupling encodes intent, and letting a
+    live host rewrite it changes what the cascade math means.
+    """
+
+    # --- Scope cost (K_c) ---
+    nullification_cost_enabled: bool = True
+    """Price each dimension's blind spot before it may be nullified."""
+
+    max_nullification_cost: float = 0.05
+    """Ceiling on the visibility a single auto-nullification may forfeit."""
+
+    # --- Permission debt ---
+    permission_debt_accrual: float = 0.0
+    """Debt added per denied tick (0 = Π_c returns the instant conditions clear).
+
+    Non-zero values stop the permission gate from flapping: after a denial the
+    system must stay clean long enough to repay before it is trusted again.
+    """
+
+    permission_debt_repayment: float = 0.5
+    """Debt repaid per clean tick."""
+
+    permission_debt_max: float = 5.0
+    """Ceiling on accumulated debt, bounding how long recovery can take."""
 
     def __post_init__(self) -> None:
         self.dr_weights = np.asarray(self.dr_weights, dtype=np.float64)
