@@ -150,6 +150,31 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
                     }
                     for h in assessment.origin_hypotheses
                 ],
+                "origin_flux": float(assessment.origin_flux),
+                "origin_defined": bool(assessment.origin_defined),
+                "sovereign_signature": float(assessment.sovereign_signature),
+                "law_conformance": (
+                    {
+                        "phi_h11": float(assessment.law_conformance.phi_h11),
+                        "mean_conformance": float(
+                            assessment.law_conformance.mean_conformance
+                        ),
+                        "sovereign": assessment.law_conformance.sovereign,
+                        "laws": [
+                            {
+                                "law": law.law,
+                                "name": law.name,
+                                "measured": round(float(law.measured), 4),
+                                "required": float(law.required),
+                                "conformance": round(float(law.conformance), 4),
+                                "verdict": law.verdict.value,
+                            }
+                            for law in assessment.law_conformance.laws
+                        ],
+                    }
+                    if assessment.law_conformance
+                    else None
+                ),
                 "nullification_cost": [
                     float(x) for x in assessment.nullification_cost
                 ],

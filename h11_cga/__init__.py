@@ -8,8 +8,9 @@ from h11_cga.types import (
     ActionType, ActionUrgency, ResponseAction,
     ThreatAssessment, SecurityEvent, TelemetryInput,
     CGAConfig, EncryptICClassification,
+    LawVerdict, LawConformance, LawConformanceReport,
     NUM_DIMENSIONS, DIMENSION_NAMES, DIMENSION_INDEX,
-    NUM_TRANSFORMATION_NODES,
+    NUM_TRANSFORMATION_NODES, LAW_NAMES, LAW_GROUPS,
 )
 from h11_cga.orchestrator import CyberGenesisEngine
 from h11_cga.core.transformation_matrix import TransformationMatrix
@@ -21,6 +22,9 @@ from h11_cga.core.advanced import (
 )
 from h11_cga.core.origin import OriginTracer
 from h11_cga.core.coherence import CoherenceAuditor
+from h11_cga.core.origin_flux import OriginFlux
+from h11_cga.core.signature import SovereignSignature
+from h11_cga.core.law_conformance import LawConformanceEngine
 
 from h11_cga.adapters import (
     BaseTelemetryAdapter,
@@ -61,7 +65,7 @@ from h11_cga.server import (
     ControlPlaneServer,
 )
 
-__version__ = '3.0.0-REFLEXIVE'
+__version__ = '4.0.0-SOVEREIGN'
 
 __all__ = [
     'SecurityState',
@@ -82,10 +86,15 @@ __all__ = [
     'TelemetryInput',
     'CGAConfig',
     'EncryptICClassification',
+    'LawVerdict',
+    'LawConformance',
+    'LawConformanceReport',
     'NUM_DIMENSIONS',
     'DIMENSION_NAMES',
     'DIMENSION_INDEX',
     'NUM_TRANSFORMATION_NODES',
+    'LAW_NAMES',
+    'LAW_GROUPS',
     'CyberGenesisEngine',
     'TransformationMatrix',
     'CyberGenesisEquation',
@@ -94,6 +103,9 @@ __all__ = [
     'DynamicCouplingEngine',
     'OriginTracer',
     'CoherenceAuditor',
+    'OriginFlux',
+    'SovereignSignature',
+    'LawConformanceEngine',
     'BaseTelemetryAdapter',
     'SystemAdapter',
     'KubernetesAdapter',

@@ -118,6 +118,21 @@ def run_monitor(
                 print(f"   Permission debt: {assessment.permission_debt:.2f} "
                       f"(trust withheld until repaid)")
 
+            law_report = assessment.law_conformance
+            if law_report is not None and not law_report.sovereign:
+                if not law_report.origin_defined:
+                    print("   Law audit:       Phi_0 UNDEFINED "
+                          "(root signature gone; system does not exist)")
+                else:
+                    broken = law_report.violated
+                    print(f"   Law audit:       Phi_0={law_report.origin_flux:.3f}  "
+                          f"S_ig={law_report.sovereign_signature:.3f}  "
+                          f"Phi_H11={law_report.phi_h11:.3f}")
+                    for law in sorted(broken, key=lambda l: l.conformance)[:3]:
+                        print(f"     ! Law {law.law:2d} {law.name:11s} "
+                              f"{law.measured:+.4f} vs {law.required:+.1f} required "
+                              f"-> {law.verdict.value}")
+
             if assessment.recommended_actions:
                 print(f"   Recommended Actions ({len(assessment.recommended_actions)}):")
                 for action in assessment.recommended_actions[:3]:

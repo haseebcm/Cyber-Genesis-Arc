@@ -27,6 +27,9 @@ from h11_cga.core.cyber_genesis_equation import CyberGenesisEquation
 from h11_cga.core.advanced import SelfHealingProjector
 from h11_cga.core.origin import OriginTracer
 from h11_cga.core.coherence import CoherenceAuditor
+from h11_cga.core.origin_flux import OriginFlux
+from h11_cga.core.signature import SovereignSignature
+from h11_cga.core.law_conformance import LawConformanceEngine
 from h11_cga.engines.sense import SenseEngine
 from h11_cga.engines.diverge import DivergeEngine
 from h11_cga.engines.limit import LimitEngine as LimitEngineWrapper
@@ -61,6 +64,11 @@ class CyberGenesisEngine:
         )
         self._coherence = CoherenceAuditor(config)
 
+        # First Knowledge — the root the architecture is an instantiation of.
+        self._origin_flux = OriginFlux()
+        self._signature = SovereignSignature()
+        self._laws = LawConformanceEngine(config)
+
         # Five subsystem engines
         self._sense = SenseEngine(config)
         self._diverge = DivergeEngine(config)
@@ -88,6 +96,7 @@ class CyberGenesisEngine:
             3. LIMIT    — ULE + HSA → distance to failure
             4. CONVERGE — CCI + ΔCR → prioritized response actions
             5. ENCRYPT  — Genesis + DNT → permission, domain metric
+            5c. LAW     — Φ₀, S_ig and the 11 Universal Laws
             6. EQUATION — compute G_c(t) → system status
             7. RE-EVAL  — T_c cascade + ΔCR convergence + regeneration
                           fed back into SENSE for the next cycle
@@ -168,6 +177,39 @@ class CyberGenesisEngine:
 
         permission_debt = self._encrypt.genesis.debt
 
+        # --- 5c. LAW — audit the tick against the 11 Universal Laws ---
+        origin_flux, origin_defined = self._origin_flux.compute(
+            current_state, baseline, domain_metric
+        )
+        sovereign_signature = self._signature.compute(current_state, baseline)
+
+        law_report = None
+        if self._config.law_conformance_enabled:
+            law_report = self._laws.evaluate(
+                origin_flux=origin_flux,
+                origin_defined=origin_defined,
+                signature=sovereign_signature,
+                lineage_ratio=self._signature.lineage_ratio(),
+                divergence_magnitude=divergence.magnitude,
+                dr_adjusted=dr_adjusted,
+                limit_utilization=limit_utilization,
+                domain_metric=domain_metric,
+                chaos=float(np.linalg.norm(unexplained)),
+                cascade_delta=self._transform.propagate_delta(
+                    current_state.vector - baseline.reference,
+                    dt=self._cascade_dt(dt),
+                    domain_vector=domain_vector,
+                ),
+                actions=actions,
+                deficit=baseline.reference - current_state.vector,
+            )
+
+            # 𝒢_H11 nullifies when the data does not comply with the Laws, and
+            # without governance there is no permission to exist. Off by
+            # default: this hands Π_c to eleven invariants at once.
+            if self._config.law_authoritative and not law_report.sovereign:
+                permission = 0.0
+
         # --- 6. EQUATION ---
         hsa_positive = max(0.0, hsa_coordinate)
         gc_value, gc_terms = self._equation.compute_with_breakdown(
@@ -229,6 +271,10 @@ class CyberGenesisEngine:
             unexplained_vector=unexplained,
             nullification_cost=nullification_cost,
             permission_debt=permission_debt,
+            origin_flux=origin_flux,
+            origin_defined=origin_defined,
+            sovereign_signature=sovereign_signature,
+            law_conformance=law_report,
             time_to_boundary=time_to_boundary,
             safety_conditions=safety_conditions,
             regeneration_energy=regeneration_energy,
@@ -246,6 +292,11 @@ class CyberGenesisEngine:
             "encrypt_classification": classification.value,
             "coherence": coherence,
             "likely_origin": origin_hypotheses[0].name if origin_hypotheses else None,
+            "origin_flux": origin_flux,
+            "sovereign_signature": sovereign_signature,
+            "laws_violated": (
+                [law.law for law in law_report.violated] if law_report else []
+            ),
         })
         self._tick_count += 1
 
@@ -480,6 +531,29 @@ class CyberGenesisEngine:
                 DIMENSION_NAMES[i]: round(float(latest.nullification_cost[i]), 4)
                 for i in range(NUM_DIMENSIONS)
             },
+            "origin_flux": latest.origin_flux,
+            "origin_defined": latest.origin_defined,
+            "sovereign_signature": latest.sovereign_signature,
+            "law_conformance": (
+                {
+                    "phi_h11": latest.law_conformance.phi_h11,
+                    "mean_conformance": latest.law_conformance.mean_conformance,
+                    "sovereign": latest.law_conformance.sovereign,
+                    "laws": [
+                        {
+                            "law": law.law,
+                            "name": law.name,
+                            "measured": round(law.measured, 4),
+                            "required": law.required,
+                            "conformance": round(law.conformance, 4),
+                            "verdict": law.verdict.value,
+                        }
+                        for law in latest.law_conformance.laws
+                    ],
+                }
+                if latest.law_conformance
+                else None
+            ),
             "time_to_boundary": latest.time_to_boundary,
             "safety_conditions": latest.safety_conditions,
             "regeneration_energy": latest.regeneration_energy,
@@ -507,6 +581,8 @@ class CyberGenesisEngine:
         self._last_tick_time = time.time()
 
         self._coherence.reset()
+        self._signature.reset()
+        self._laws.reset()
         self._transform = TransformationMatrix()
         self._origin.set_matrix(self._transform.as_array())
         self._converge.set_coupling_matrix(self._transform.as_array())

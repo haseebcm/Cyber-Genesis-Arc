@@ -20,6 +20,18 @@ Traditional:  ATTACK → SIGNATURE → ALERT → ANALYST → RESPONSE
 H¹¹-CGA:     STATE → DIVERGENCE → LIMIT → NULLIFICATION → CONVERGENCE → REGENERATION
 ```
 
+### Where the architecture comes from
+
+H¹¹-CGA is not an application of control theory. It is a cyber instantiation of
+the **H¹¹ First Knowledge** framework, in which existence is governed by 11
+Universal Laws, each carrying a derivative condition it must satisfy. The eleven
+security dimensions are those Laws; Π_c is Law 1's permission into existence;
+Domain Nullification is 𝒢_H11 refusing what does not comply; ULE is Laws 5 and
+6; Encrypt-IC's boundary is Law 4; CONVERGE is Law 11's resolution.
+
+Phase 4.0 implements that root explicitly — see
+[First Knowledge](#phase-40-first-knowledge--the-11-universal-laws).
+
 ---
 
 ## Architecture Overview
@@ -296,6 +308,131 @@ since it changes the semantics of the gate.
 
 ---
 
+## Phase 4.0: First Knowledge — The 11 Universal Laws
+
+The eleven dimensions were never an engineering choice, and the architecture is
+not an application of control theory. H¹¹-CGA is a cyber instantiation of the
+**H¹¹ First Knowledge** framework, whose 11 Universal Laws each carry a
+derivative condition and a value that condition must hold. 4.0 implements that
+root directly.
+
+Several operators turn out to have been implementations of the Laws all along.
+Π_c is Law 1's moment at which a variable is *permitted to move from Incoherence
+into Intelligibility*. Domain Nullification is 𝒢_H11 becoming the nullifier that
+prevents existence when data does not comply. ULE is Laws 5 and 6, Encrypt-IC's
+boundary is Law 4, CONVERGE is Law 11's point of convergence, and DSA's
+`ESCALATING` / `RECOVERING` / `NORMAL` split is Law 1's own verdict — above
+unity is Escalation, below is Decay, at unity is Stasis.
+
+What was missing were the two quantities the Laws are written in terms of.
+
+### Φ₀ — the Origin Flux (Law 1)
+
+$$\Phi_0 = \lim_{\Delta \to 0} \frac{\int [S_{data}] \cdot \mathcal{G}_{H11}}{\text{Identity}_z}$$
+
+The architecture carried the *gate* this Law describes but never the
+*magnitude*, which Laws 1, 2, 4, 6, 8 and 11 all divide by or scale against.
+Each term maps onto something already measured: $S_{data}$ is the state held
+against its own root $X_c(t)/X_c^*$, $\mathcal{G}_{H11}$ is exactly the domain
+metric $W_c(a)$, and $\text{Identity}_z$ is the Identity dimension anchoring the
+system to its inception. At the nominal root Φ₀ = 1.
+
+Both failure modes the Law names are real and distinct. **Φ₀ = 0** is refusal —
+governance nullified the data. **Φ₀ undefined** is dissolution — Identity_z
+vanished and there is no root left to exist from. Existence requires 0 < Φ₀ < ∞.
+
+Because Identity_z is the denominator, Φ₀ measures *proportion*, not health, and
+is invariant to uniform scale. That is the Law's own structure, not a defect:
+it is why the text says the term "ensures the system is unique and
+non-composite". A system fading evenly holds Φ₀ steady and is caught by DR_c
+instead; what Φ₀ detects is an intact-looking state whose identity anchor has
+been cut out from under it, which drives it *above* unity into Escalation.
+
+### S_ig — the Sovereign Signature
+
+The Coherence Factor: how closely the system still reflects its Originator. It
+carries Laws 3, 4, 8, 9 and 10, and **it is not what Λ_c measures**. Λ_c grades
+whether T_c predicted the state's motion — an audit of the model. S_ig asks
+whether the system still has the shape of the thing it was calibrated to be.
+
+The two are deliberately independent, and a perfectly predicted collapse scores
+high on Λ_c and low on S_ig. Measured as the alignment of $X_c(t)$ with $X_c^*$,
+S_ig captures form rather than magnitude, which is what separates decay from
+mutation: uniform loss preserves the signature, targeted loss destroys it, and
+Law 10 refuses to call the second one evolution.
+
+### Λ₁₁ — the 11 Law conformance vector
+
+Each Law is scored by how far its measured derivative sits from the value it
+requires, giving `conformance = 1/(1 + violation)`.
+
+| Law | Condition | Reads as |
+|-----|-----------|----------|
+| 1 Origin | $d\mathcal{E}/dO = 1$ | >1 Escalation, <1 Decay |
+| 2 Creation | $d^2\mathcal{E}/dO^2 = 0$ | acceleration away from the blueprint |
+| 3 Existence | $d\text{Ex}/dt = 0$ | negative is dying, positive is runaway |
+| 4 Boundary | $d\Sigma/dV$ finite | an infinity is a failed calculation |
+| 5 Constraint | $d\Omega/dt \approx 0$ | work capacity must be steady |
+| 6 Limit | $\lim_{\mathcal{E} \to L} d\mathcal{E}/dt = 0$ | at the ceiling, change must stop |
+| 7 Relation | $dS_1/d\mathcal{R} \to 0$ | interaction must not destroy its participants |
+| 8 Action | energy minimal at alignment | is ΔCR aimed at the actual damage? |
+| 9 Balance | $d^2\mathcal{B}/dt^2 \to 0$ | a sovereign system returns to centre |
+| 10 Evolution | $d\text{Origin}/d\text{Evolution} = 1$ | the signature must survive the change |
+| 11 Resolution | $\mathcal{R}_s \to 1$ | ratio 1 resolves cleanly, otherwise violently |
+
+These are system-wide invariants over the whole state, not labels bound to
+individual dimensions; only Law 1 names one, taking Identity as its denominator.
+Since the Laws demand exact values and real telemetry never lands exactly,
+`law_violation_tolerance` sets the band that counts as Stasis.
+
+Law 8 is worth singling out. The framework holds that action against the grain
+does no work, and turning that into cos(θ) between ΔCR's proposed effort and the
+actual deficit yields something the architecture had never done: an audit of
+whether its own recommendations point at the damage.
+
+### Φ_H11 — the Golden Ratio as closure
+
+$$\Phi_{H11} = \frac{\text{Law}_{11}\ (\text{Resolution})}{\text{Law}_{1}\ (\text{Origin})}$$
+
+The framework rejects the Golden Ratio as a decimal and restates it as an axiom
+of alignment: perfect proportion is reached when the End matches the Beginning,
+closing the loop with zero waste. It is taken over the two Laws' **measured
+values**, not their conformance scores — scoring it on conformance looks natural
+but is wrong, since two Laws failing by the same amount divide out to a flawless
+1.0 on a system that has already dissolved.
+
+### Authority
+
+The source is unambiguous that a Law violation should bite: *"if the data does
+not comply with the Laws, 𝒢_H11 becomes a nullifier (0), preventing existence."*
+Setting `law_authoritative = True` implements exactly that — a broken Law
+revokes Π_c and the system drops to EMERGENCY.
+
+It ships **off by default**, on the same reasoning as 3.0's permission debt and
+coupling adaptation: it hands a core gate to eleven invariants at once. Enable
+it deliberately, after watching the conformance report against your own
+workload. Φ₀ and S_ig are cheap and always measured; only the audit and its
+authority are optional.
+
+```python
+from h11_cga import CyberGenesisEngine, CGAConfig
+
+engine = CyberGenesisEngine()
+assessment = engine.inject_attack("identity_compromise", severity=0.2)
+
+print(assessment.origin_flux)          # 1.2000 — data outrunning its anchor
+print(assessment.sovereign_signature)  # form fidelity to X_c*
+print(assessment.law_conformance.phi_h11)
+for law in assessment.law_conformance.violated:
+    print(law)                         # Law1 Origin: +1.2000 vs +1.0000 -> ESCALATION
+```
+
+```bash
+python examples/first_knowledge_demo.py
+```
+
+---
+
 ## Installation
 
 ```bash
@@ -454,7 +591,10 @@ h11_cga/
 │   ├── transformation_matrix.py # 11×11 Matrix (121 nodes)
 │   ├── cyber_genesis_equation.py # The Master Equation
 │   ├── origin.py            # Ψ_c Origin attribution (T_c run backwards)
-│   └── coherence.py         # Λ_c Cascade coherence & T_c self-correction
+│   ├── coherence.py         # Λ_c Cascade coherence & T_c self-correction
+│   ├── origin_flux.py       # Φ₀ Origin Flux (Law 1)
+│   ├── signature.py         # S_ig Sovereign Signature
+│   └── law_conformance.py   # Λ₁₁ The 11 Universal Laws & Φ_H11
 └── engines/
     ├── sense.py              # H¹¹ SENSE engine
     ├── diverge.py            # H¹¹ DIVERGE engine

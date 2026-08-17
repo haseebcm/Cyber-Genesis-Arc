@@ -55,6 +55,37 @@ DIMENSION_INDEX: dict[str, int] = {
 
 NUM_TRANSFORMATION_NODES = NUM_DIMENSIONS * NUM_DIMENSIONS  # 121
 
+LAW_NAMES: tuple[str, ...] = (
+    "Origin",
+    "Creation",
+    "Existence",
+    "Boundary",
+    "Constraint",
+    "Limit",
+    "Relation",
+    "Action",
+    "Balance",
+    "Evolution",
+    "Resolution",
+)
+"""The 11 Universal Laws of the H¹¹ framework, in derivation order.
+
+These are system-wide invariants evaluated over the whole state, not labels
+attached to individual dimensions. Only Law 1 names a specific dimension:
+Identity supplies the root signature Identity_z in its denominator.
+
+Grouped by the framework as Seed (1-3), Vessel (4-6), Interaction (7-9),
+and Return (10-11).
+"""
+
+LAW_GROUPS: dict[str, tuple[int, ...]] = {
+    "Seed": (1, 2, 3),
+    "Vessel": (4, 5, 6),
+    "Interaction": (7, 8, 9),
+    "Return": (10, 11),
+}
+"""The four arcs the 11 Laws fall into."""
+
 
 # ---------------------------------------------------------------------------
 # Enumerations
@@ -146,6 +177,22 @@ class EncryptICClassification(enum.Enum):
     UNCERTAIN = "UNCERTAIN"
     DIVERGENT = "DIVERGENT"
     UNAUTHORIZED = "UNAUTHORIZED"
+
+
+class LawVerdict(enum.Enum):
+    """How a measured derivative sits against the value its Law requires."""
+
+    STASIS = "STASIS"
+    """Measured ≈ required — the Law is satisfied."""
+
+    ESCALATION = "ESCALATION"
+    """Measured above required — growth the Law does not sanction."""
+
+    DECAY = "DECAY"
+    """Measured below required — the system is losing what it had."""
+
+    UNDEFINED = "UNDEFINED"
+    """The quantity could not be formed at all; Φ₀ has no denominator."""
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +453,101 @@ class CascadePath:
 
 
 # ---------------------------------------------------------------------------
+# First Knowledge — Law conformance
+# ---------------------------------------------------------------------------
+
+@dataclass
+class LawConformance:
+    """How the system measured against one Universal Law this tick."""
+
+    law: int = 0
+    """Law number, 1-11."""
+
+    name: str = ""
+    """Law name."""
+
+    measured: float = 0.0
+    """The derivative the system actually produced."""
+
+    required: float = 0.0
+    """The value this Law requires that derivative to hold."""
+
+    violation: float = 0.0
+    """|measured − required| — distance from the Law."""
+
+    conformance: float = 1.0
+    """1/(1 + violation) — bounded (0, 1], where 1 is exact conformance."""
+
+    verdict: LawVerdict = LawVerdict.STASIS
+    """Direction of the deviation, in the framework's own terms."""
+
+    def __repr__(self) -> str:
+        return (
+            f"Law{self.law} {self.name}: {self.measured:+.4f} vs {self.required:+.4f} "
+            f"-> {self.verdict.value} ({self.conformance:.3f})"
+        )
+
+
+@dataclass
+class LawConformanceReport:
+    """The full 11-Law audit for one tick, plus the closure of the arc."""
+
+    laws: list[LawConformance] = field(default_factory=list)
+    """Conformance for each of the 11 Laws, in order."""
+
+    phi_h11: float = 1.0
+    """Φ_H11 = Law₁₁ / Law₁ — the arc closes when the End matches the Beginning."""
+
+    origin_flux: float = 1.0
+    """Φ₀ — the magnitude of existence this tick."""
+
+    origin_defined: bool = True
+    """False when Identity_z vanished and Φ₀ could not be formed at all."""
+
+    sovereign_signature: float = 1.0
+    """S_ig — how closely the system still reflects its Originator."""
+
+    mean_conformance: float = 1.0
+    """Average conformance across all 11 Laws."""
+
+    def __post_init__(self) -> None:
+        if self.laws and self.mean_conformance == 1.0:
+            self.mean_conformance = float(
+                np.mean([law.conformance for law in self.laws])
+            )
+
+    @property
+    def violated(self) -> list[LawConformance]:
+        """Laws whose verdict is anything other than Stasis."""
+        return [law for law in self.laws if law.verdict is not LawVerdict.STASIS]
+
+    @property
+    def sovereign(self) -> bool:
+        """True when every Law is satisfied and the origin is well-formed."""
+        return self.origin_defined and not self.violated
+
+    @property
+    def worst_law(self) -> LawConformance | None:
+        """The Law the system is furthest from, if any is broken."""
+        broken = self.violated
+        return min(broken, key=lambda law: law.conformance) if broken else None
+
+    def summary(self) -> dict[str, Any]:
+        """Concise dict for logging and dashboards."""
+        worst = self.worst_law
+        return {
+            "phi_0": round(self.origin_flux, 4),
+            "origin_defined": self.origin_defined,
+            "s_ig": round(self.sovereign_signature, 4),
+            "phi_h11": round(self.phi_h11, 4),
+            "mean_conformance": round(self.mean_conformance, 4),
+            "sovereign": self.sovereign,
+            "violated_laws": [law.law for law in self.violated],
+            "worst_law": worst.name if worst else None,
+        }
+
+
+# ---------------------------------------------------------------------------
 # Response & Action
 # ---------------------------------------------------------------------------
 
@@ -521,6 +663,19 @@ class ThreatAssessment:
     permission_debt: float = 0.0
     """Outstanding caution owed before Π_c may return to 1."""
 
+    # --- First Knowledge (Φ₀, S_ig, the 11 Laws) ---
+    origin_flux: float = 1.0
+    """Φ₀ — magnitude of existence; 1.0 at the nominal root."""
+
+    origin_defined: bool = True
+    """False when Identity_z vanished, i.e. the system has no root to exist from."""
+
+    sovereign_signature: float = 1.0
+    """S_ig — fidelity of the current form to its Originator."""
+
+    law_conformance: LawConformanceReport | None = None
+    """The 11-Law audit for this tick, when the Law layer is enabled."""
+
     # --- Regeneration (closed loop) ---
     time_to_boundary: float | None = None
     """HSA linear estimate of ticks-to-singularity; None if receding."""
@@ -557,6 +712,16 @@ class ThreatAssessment:
             "coherence": round(self.coherence, 4),
             "permission_debt": round(self.permission_debt, 4),
             "likely_origin": self.origin_hypotheses[0].name if self.origin_hypotheses else None,
+            "origin_flux": round(self.origin_flux, 4),
+            "sovereign_signature": round(self.sovereign_signature, 4),
+            "phi_h11": (
+                round(self.law_conformance.phi_h11, 4) if self.law_conformance else None
+            ),
+            "laws_violated": (
+                [law.law for law in self.law_conformance.violated]
+                if self.law_conformance
+                else []
+            ),
             "num_actions": len(self.recommended_actions),
         }
 
@@ -769,6 +934,34 @@ class CGAConfig:
 
     permission_debt_max: float = 5.0
     """Ceiling on accumulated debt, bounding how long recovery can take."""
+
+    # --- First Knowledge: the 11 Universal Laws ---
+    law_conformance_enabled: bool = True
+    """Audit every tick against the 11 Laws and report Φ₀, S_ig and Φ_H11."""
+
+    law_authoritative: bool = False
+    """Let a broken Law nullify G_H11 and revoke Π_c, as the framework states.
+
+    The source is unambiguous — governance that does not comply becomes a
+    nullifier and existence is refused. It is left off by default because it
+    hands a core gate to eleven invariants at once: enable it deliberately,
+    after watching the conformance report on your own workload.
+    """
+
+    law_violation_tolerance: float = 0.05
+    """How far a measured derivative may sit from its required value.
+
+    Below this the Law reads as Stasis. The Laws require exact values (1, 0,
+    finite); real telemetry never lands exactly, so conformance needs a band.
+    """
+
+    law_boundary_bound: float = 10.0
+    """Ceiling on |dΣ/dV| before Law 4's boundary counts as blurred.
+
+    Law 4 requires a finite, sharp edge; in H¹¹ physics an infinity is the
+    signature of a failed calculation, so the check is for divergence rather
+    than for a target value.
+    """
 
     def __post_init__(self) -> None:
         self.dr_weights = np.asarray(self.dr_weights, dtype=np.float64)
