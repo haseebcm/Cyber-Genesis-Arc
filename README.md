@@ -3,7 +3,7 @@
 [![Author: Mohamed Haseeb C M](https://img.shields.io/badge/author-Mohamed%20Haseeb%20C%20M-blue.svg)](https://github.com/haseebcm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Architecture: 4.0](https://img.shields.io/badge/architecture-4.1--HARDENED-purple.svg)](#foundation-the-11-universal-laws)
+[![Architecture: 4.0](https://img.shields.io/badge/architecture-4.2--HARDENED-purple.svg)](#foundation-the-11-universal-laws)
 
 > **Created & Designed by Mohamed Haseeb C M**
 >
@@ -15,7 +15,9 @@
 
 ---
 
-## Hardened runtime release 4.1
+## Windows response release 4.2
+
+See [Windows installation and real response instructions](docs/WINDOWS.md). Version 4.2 adds actual user-process suspension/resumption, authenticated operator controls, a durable SQLite journal, and an independent rollback watchdog. The live response example verifies a real heartbeat stopping and resuming.
 
 See [deployment and presentation instructions](docs/DEPLOYMENT.md) for an offline demo and secure deployment. The H11 model is preserved; the runtime now isolates proposal scoring, bounds histories, validates inputs, requires registered tool policies, and secures server defaults.
 
@@ -615,7 +617,7 @@ Architecture, First Knowledge framework, and implementation.
 @software{h11_cga,
   author      = {Mohamed Haseeb C M},
   title       = {H\textsuperscript{11} Cyber Genesis Architecture},
-  version     = {4.1.0},
+  version     = {4.2.0},
   description = {A cybersecurity architecture governed by the 11 Universal Laws
                  of the H11 First Knowledge framework},
   url         = {https://github.com/haseebcm/Cyber-Genesis-Arc},

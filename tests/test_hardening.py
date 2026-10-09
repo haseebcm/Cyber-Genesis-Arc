@@ -159,3 +159,24 @@ def test_monitor_cli_and_server_cli(monkeypatch, capsys):
     monkeypatch.setattr('sys.argv', ['h11-server', '--demo'])
     cli_server.main()
     assert captured == {'host': '127.0.0.1', 'port': 8080, 'demo': True}
+
+
+def test_real_response_requires_explicit_policy_and_audit(service, tmp_path):
+    import os
+    with pytest.raises(ValueError):
+        ControlPlaneServer(allowed_pids=[os.getpid()])
+    _, url = service(demo=True, api_token='t' * 64)
+    assert call(url + '/api/v1/responses', 't' * 64)[1]['enabled'] is False
+    assert call(url + '/api/v1/responses/quarantine', 't' * 64, {'pid': 123, 'reason': 'denied'})[0] == 403
+
+
+def test_same_origin_browser_mutations_and_foreign_origin_denial(service):
+    _, url = service(demo=True)
+    body = json.dumps({'attack': 'ddos', 'severity': .1}).encode()
+    req = urllib.request.Request(url+'/api/v1/attack', data=body, headers={'Content-Type': 'application/json', 'Origin': url})
+    with urllib.request.urlopen(req) as response:
+        assert response.status == 200
+    req = urllib.request.Request(url+'/api/v1/attack', data=body, headers={'Content-Type': 'application/json', 'Origin': 'https://untrusted.example'})
+    with pytest.raises(urllib.error.HTTPError) as err:
+        urllib.request.urlopen(req)
+    assert err.value.code == 403

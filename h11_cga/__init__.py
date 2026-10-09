@@ -65,10 +65,14 @@ from h11_cga.server import (
     ControlPlaneServer,
 )
 
-__version__ = '4.1.0'
+from h11_cga.response import ProcessResponseController, AuditStore
+
+__version__ = '4.2.0'
 __codename__ = 'SOVEREIGN'
 
 __all__ = [
+    'ProcessResponseController',
+    'AuditStore',
     'SecurityState',
     'SecurityBaseline',
     'SecurityOrigin',

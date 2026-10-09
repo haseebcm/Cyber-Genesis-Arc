@@ -192,7 +192,7 @@
 
         <!-- Panel 3: Attack Injection & Domain Nullification -->
         <div class="card">
-            <h3>Live Attack Injection Console</h3>
+            <h3>Model Simulation Console</h3>
             <p style="font-size:12px; color:var(--text-muted);">Simulation controls (disabled in monitor mode):</p>
             <div class="btn-group">
                 <button onclick="injectAttack('identity_compromise')">Identity Attack</button>
@@ -205,10 +205,15 @@
 
             <div style="margin-top:15px;">
                 <button onclick="triggerSelfHeal()" style="width:100%; background:#059669; color:#ffffff; font-weight:700; border:none; padding:12px;">
-                    ⚡ RESTORE SELF-HEALING STATE PROJECTION R_genesis(X_c)
+                    Project simulation state into its baseline envelope
                 </button>
             </div>
 
+            <h3 style="margin-top:25px;">Real Process Response Controls</h3>
+            <p id="responseMode">Loading operator policy…</p>
+            <div id="responseTargets" class="btn-group"></div>
+            <div id="activeResponses" class="btn-group"></div>
+            <pre id="responseAudit" style="white-space:pre-wrap;font-size:11px"></pre>
             <h3 style="margin-top:25px;">Prioritized Response Actions (ΔCR)</h3>
             <table>
                 <thead>
@@ -256,6 +261,7 @@
                 document.getElementById('statusBadge').innerText = data.calibrating ? 'CALIBRATING' : data.status;
                 document.title = 'H11 CGA — ' + data.mode;
                 document.querySelectorAll('button[onclick]').forEach(b => b.disabled = data.mode !== 'simulation');
+                await fetchResponses();
                 document.getElementById('genesisValue').innerText = (data.genesis_value >= 0 ? '+' : '') + (data.genesis_value ?? 0).toFixed(4);
                 document.getElementById('drValue').innerText = (data.dr_value || 0).toFixed(4);
                 document.getElementById('hsaValue').innerText = (data.hsa_coordinate >= 0 ? '+' : '') + (data.hsa_coordinate ?? 0).toFixed(4);
@@ -289,6 +295,40 @@
             } catch (err) {
                 console.error("Error fetching CGA status:", err);
             }
+        }
+
+        async function responseAction(path, payload) {
+            try {
+                const res = await fetch(path, {method:'POST', headers:{...authHeaders(), 'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Response failed');
+                await fetchResponses();
+            } catch (error) { alert(error.message); }
+        }
+        async function fetchResponses() {
+            const res = await fetch('/api/v1/responses', {headers:authHeaders()});
+            if (!res.ok) return;
+            const data = await res.json();
+            document.getElementById('responseMode').textContent = data.enabled ? 'Real OS controls enabled for approved targets. Suspension automatically rolls back.' : 'Real response is disabled. Start with an explicit process policy to enable it.';
+            const targets = document.getElementById('responseTargets');
+            const active = document.getElementById('activeResponses');
+            targets.replaceChildren(); active.replaceChildren();
+            for (const pid of data.allowed_pids) {
+                const button = document.createElement('button');
+                button.textContent = 'Suspend PID ' + pid;
+                button.addEventListener('click', () => {
+                    const reason = prompt('Reason for temporarily suspending approved PID ' + pid + ':');
+                    if (reason) responseAction('/api/v1/responses/quarantine', {pid, reason});
+                });
+                targets.append(button);
+            }
+            for (const row of data.active) {
+                const button = document.createElement('button');
+                button.textContent = 'Resume PID ' + row.pid + ' (' + row.state + ')';
+                button.addEventListener('click', () => responseAction('/api/v1/responses/resume', {response_id:row.id}));
+                active.append(button);
+            }
+            document.getElementById('responseAudit').textContent = data.recent.slice(0,8).map(row => new Date(row.timestamp * 1000).toLocaleTimeString() + ' ' + row.kind + ' ' + row.payload).join('\n');
         }
 
         async function injectAttack(attackName) {

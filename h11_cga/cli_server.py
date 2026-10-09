@@ -32,9 +32,15 @@ def main() -> None:
         help="Server HTTP port (default: 8080).",
     )
     parser.add_argument("--demo", action="store_true", help="Enable isolated simulation controls; no host enforcement")
+    parser.add_argument("--allow-pid", type=int, action="append", default=[], help="Explicitly permit real suspension of this PID (repeatable)")
+    parser.add_argument("--audit-path", help="Durable SQLite response journal")
+    parser.add_argument("--max-hold", type=float, default=30, help="Automatic rollback deadline, 1–300 seconds")
     args = parser.parse_args()
 
-    server = ControlPlaneServer(host=args.host, port=args.port, demo=args.demo)
+    options = dict(host=args.host, port=args.port, demo=args.demo)
+    if args.allow_pid:
+        options.update(allowed_pids=args.allow_pid, audit_path=args.audit_path, max_hold_seconds=args.max_hold)
+    server = ControlPlaneServer(**options)
     try:
         server.start()
     except KeyboardInterrupt:

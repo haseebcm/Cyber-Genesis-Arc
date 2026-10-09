@@ -102,6 +102,10 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
         super().setup()
         self.connection.settimeout(5.0)
 
+    def _same_origin(self):
+        origin = self.headers.get("Origin")
+        return origin is None or origin in {"http://" + self.headers.get("Host", ""), os.environ.get("H11_PUBLIC_ORIGIN", "")}
+
     def _authorized(self):
         token = self.server.runtime.api_token
         if token and not hmac.compare_digest(self.headers.get("Authorization", "").encode("utf-8"), ("Bearer " + token).encode("utf-8")):
@@ -140,8 +144,14 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
 
         path = self.path.split("?")[0]
 
+        if path == "/api/v1/responses":
+            if not self._authorized():
+                return
+            controller = runtime.responses
+            self._send_json({"enabled": controller is not None, "allowed_pids": list(controller.allowed) if controller else [], "active": controller.audit.active() if controller else [], "recent": controller.audit.recent() if controller else []})
+            return
         if path == "/readyz":
-            ready = runtime.assessment is not None and not runtime.engine.is_calibrating and not runtime.last_error and time.monotonic() - runtime.last_sample < runtime.interval * 3
+            ready = runtime.assessment is not None and not runtime.engine.is_calibrating and not runtime.last_error and (runtime.responses is None or not runtime.responses.last_error) and time.monotonic() - runtime.last_sample < runtime.interval * 3
             self._send_json({"ready": bool(ready)}, 200 if ready else 503)
             return
         if path == "/healthz":
@@ -184,7 +194,7 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
                 "tick": runtime.tick,
                 "mode": runtime.mode,
                 "calibrating": engine.is_calibrating,
-                "response_enforcement": "simulation" if runtime.demo else "recommendations_only",
+                "response_enforcement": "simulation" if runtime.demo else ("operator_process_control" if runtime.responses else "recommendations_only"),
                 "telemetry_provenance": hub.last_provenance,
                 "telemetry_skipped": hub.last_skipped,
                 "status": assessment.status.value,
@@ -261,10 +271,13 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
         runtime = self.server.runtime
         if not self._authorized():
             return
+        if self.path.split("?")[0].startswith("/api/v1/responses/"):
+            self._response_post(runtime)
+            return
         if not runtime.demo:
             self._send_json({"error": "Simulation controls are disabled in monitor mode"}, 403)
             return
-        if self.headers.get("Origin"):
+        if not self._same_origin():
             self._send_json({"error": "Cross-origin mutations are disabled"}, 403)
             return
         if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
@@ -310,6 +323,45 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
         except TimeoutError:
             self._send_json({"error": "Request timed out"}, 408)
 
+    def _response_post(self, runtime):
+        controller = runtime.responses
+        if controller is None:
+            self._send_json({"error": "Real response policy is not configured"}, 403)
+            return
+        if not self._same_origin() or self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
+            self._send_json({"error": "Same-origin JSON request required"}, 403)
+            return
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 1 <= length <= 16384:
+                self._send_json({"error": "Invalid body size"}, 413)
+                return
+            data = json.loads(self.rfile.read(length), parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+            if not isinstance(data, dict):
+                raise ValueError()
+            path = self.path.split('?')[0]
+            if path == '/api/v1/responses/quarantine':
+                if set(data) - {'pid', 'reason', 'hold_seconds'}:
+                    raise ValueError()
+                result = controller.quarantine(data.get('pid'), data.get('reason'), data.get('hold_seconds'))
+            elif path == '/api/v1/responses/resume':
+                if set(data) != {'response_id'} or not isinstance(data['response_id'], str):
+                    raise ValueError()
+                result = controller.resume(data['response_id'])
+            else:
+                self._send_json({'error': 'Endpoint not found'}, 404)
+                return
+            self._send_json(result)
+        except PermissionError:
+            self._send_json({'error': 'Operator policy denied this target'}, 403)
+        except (ValueError, TypeError, UnicodeError):
+            self._send_json({'error': 'Invalid response request'}, 400)
+        except TimeoutError:
+            self._send_json({'error': 'Request timed out'}, 408)
+        except Exception:
+            logger.exception('OS response failed')
+            self._send_json({'error': 'Response failed; inspect response journal and process state'}, 503)
+
 
 def _json_safe(value):
     """Undefined model quantities are JSON null, never nonstandard NaN/Infinity."""
@@ -323,9 +375,10 @@ def _json_safe(value):
 
 
 class Runtime:
-    def __init__(self, demo=False, api_token=None, interval=1.0):
+    def __init__(self, demo=False, api_token=None, interval=1.0, responses=None):
         from h11_cga.core.advanced import StateIntegrityProver
         self.demo, self.api_token, self.interval = demo, api_token, interval
+        self.responses = responses
         self.mode = "simulation" if demo else "monitor"
         self.engine = CyberGenesisEngine(CGAConfig(baseline_calibration_ticks=0 if demo else 20))
         self.hub = TelemetryIngestionHub()
@@ -363,7 +416,7 @@ class Runtime:
 
 class ControlPlaneServer:
     """Local-first monitoring service; remote binds require bearer authentication."""
-    def __init__(self, host="127.0.0.1", port=8080, *, demo=False, api_token=None, interval=1.0):
+    def __init__(self, host="127.0.0.1", port=8080, *, demo=False, api_token=None, interval=1.0, allowed_pids=(), audit_path=None, max_hold_seconds=30):
         api_token = api_token or os.environ.get("H11_API_TOKEN")
         if host not in {"127.0.0.1", "localhost", "::1"} and not api_token:
             raise ValueError("Remote binding requires H11_API_TOKEN")
@@ -372,7 +425,13 @@ class ControlPlaneServer:
         if not math.isfinite(interval) or interval < 0.05:
             raise ValueError("Sampling interval must be at least 0.05 seconds")
         self.host, self.port = host, port
-        self.runtime = Runtime(demo, api_token, interval)
+        controller = None
+        if allowed_pids:
+            if demo or not api_token or not audit_path:
+                raise ValueError("Real response requires monitor mode, an API token, and a durable audit path")
+            from h11_cga.response import ProcessResponseController
+            controller = ProcessResponseController(allowed_pids, audit_path, max_hold_seconds)
+        self.runtime = Runtime(demo, api_token, interval, controller)
         self._server = None
         self._worker = None
 
@@ -391,6 +450,8 @@ class ControlPlaneServer:
             self._server.server_close()
             if self._worker:
                 self._worker.join(timeout=5)
+            if self.runtime.responses:
+                self.runtime.responses.close()
             for name in self.runtime.hub.registered_adapters:
                 self.runtime.hub.unregister_adapter(name)
 
