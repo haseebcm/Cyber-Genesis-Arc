@@ -9,6 +9,8 @@ Enforces H¹¹ Genesis permission controls and nullifies unauthorized tool calls
 from __future__ import annotations
 
 import enum
+from collections import deque
+from threading import RLock
 import logging
 import time
 from dataclasses import dataclass, field
@@ -81,8 +83,10 @@ class AIAgentGuardrailEngine:
 
     def __init__(self, cga_engine: Optional[CyberGenesisEngine] = None) -> None:
         self.engine = cga_engine if cga_engine is not None else CyberGenesisEngine()
-        self._blocked_requests: List[AIToolRequest] = []
-        self._permitted_requests: List[AIToolRequest] = []
+        self._blocked_requests = deque(maxlen=1000)
+        self._permitted_requests = deque(maxlen=1000)
+        self._execution_lock = RLock()
+        self._tools = {}
 
     def map_request_to_impact(self, request: AIToolRequest) -> np.ndarray:
         """
@@ -92,8 +96,14 @@ class AIAgentGuardrailEngine:
             0: Identity, 1: Authorization, 2: Network, 3: Data, 4: Compute,
             5: Memory, 6: Execution, 7: Resource, 8: Trust, 9: Governance, 10: Recovery
         """
+        if not isinstance(request.category, AIToolCategory):
+            raise ValueError("Unknown tool category")
         impact = np.zeros(NUM_DIMENSIONS)
         cat = request.category
+        if request.prompt_context:
+            from h11_cga.ai_guardrails.advanced import SemanticEntropyFilter
+            if SemanticEntropyFilter().evaluate_semantic_entropy(request.prompt_context)[1]:
+                cat = AIToolCategory.PROMPT_INJECTION_DETECTED
 
         if cat == AIToolCategory.FILE_READ:
             impact[3] = -0.05  # Slight Data inspection impact
@@ -157,7 +167,7 @@ class AIAgentGuardrailEngine:
         )
 
         # Run tick with injected event to project state transition
-        assessment = self.engine.inject_event(event)
+        assessment = self.engine.project_event(event)
 
         # Check Genesis Permission Π_c and System Status
         permission = assessment.permission
@@ -191,20 +201,31 @@ class AIAgentGuardrailEngine:
             timestamp=now,
         )
 
-    def execute_guarded(
-        self, request: AIToolRequest, tool_fn: Callable[..., Any]
-    ) -> Any:
-        """
-        Wrapper to execute a tool function if and only if permitted by H¹¹-CGA.
+    def register_tool(self, name: str, category: AIToolCategory, tool_fn: Callable[..., Any], validator: Callable[[Dict[str, Any]], bool]) -> None:
+        """Bind a trusted callable, category, and parameter policy to a tool name."""
+        if not name or not isinstance(category, AIToolCategory) or not callable(tool_fn) or not callable(validator):
+            raise ValueError("A tool requires a name, category, callable, and validator")
+        with self._execution_lock:
+            self._tools[name] = (category, tool_fn, validator)
 
-        Raises:
-            PermissionError if the tool call is revoked and nullified (N_0).
-        """
-        decision = self.inspect_and_govern(request)
-
-        if not decision.permitted:
-            raise PermissionError(
-                f"H11-CGA Encrypt-IC Rejection: {decision.reason}"
-            )
-
-        return tool_fn(**request.parameters)
+    def execute_guarded(self, request: AIToolRequest, tool_fn: Optional[Callable[..., Any]] = None) -> Any:
+        """Execute only a registered tool whose trusted policy and Π_c both permit it."""
+        with self._execution_lock:
+            spec = self._tools.get(request.tool_name)
+            if spec is None:
+                raise PermissionError("H11-CGA Encrypt-IC Rejection: tool is not registered")
+            category, registered_fn, validator = spec
+            if request.category != category or (tool_fn is not None and tool_fn is not registered_fn):
+                raise PermissionError("H11-CGA Encrypt-IC Rejection: tool identity/category mismatch")
+            import copy
+            proposal = copy.deepcopy(request)
+            try:
+                valid = validator(copy.deepcopy(proposal.parameters)) is True
+            except Exception:
+                valid = False
+            if not valid:
+                raise PermissionError("H11-CGA Encrypt-IC Rejection: parameter policy denied")
+            decision = self.inspect_and_govern(proposal)
+            if not decision.permitted:
+                raise PermissionError(f"H11-CGA Encrypt-IC Rejection: {decision.reason}")
+            return registered_fn(**proposal.parameters)

@@ -11,6 +11,7 @@ Mathematical Hardening Extensions:
 from __future__ import annotations
 
 import hashlib
+import secrets
 import hmac
 import logging
 import time
@@ -38,7 +39,9 @@ class StateIntegrityProver:
     """
 
     def __init__(self, secret_key: Optional[bytes] = None) -> None:
-        self.secret_key = secret_key if secret_key is not None else b"H11-CGA-ADVANCED-SECRET-KEY-512"
+        if secret_key is not None and (not isinstance(secret_key, bytes) or len(secret_key) < 32):
+            raise ValueError("HMAC key must contain at least 32 bytes")
+        self.secret_key = secret_key if secret_key is not None else secrets.token_bytes(64)
 
     def sign_state(self, state: SecurityState) -> str:
         """

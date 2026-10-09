@@ -75,8 +75,7 @@ class ProcessQuarantineEngine:
     """
     Linux / OS Kernel Process Quarantine Engine.
 
-    Sends `SIGSTOP` kernel signals and freezes suspicious processes attempting
-    unauthorized state transitions or execution violations.
+    Simulation registry only. No SIGSTOP/SIGCONT is sent to the operating system.
     """
 
     def __init__(self) -> None:
@@ -87,7 +86,7 @@ class ProcessQuarantineEngine:
         Quarantine (freeze) process by PID.
         """
         self._quarantined_pids.add(pid)
-        logger.info(f"ProcessQuarantineEngine: Frozen PID {pid} ({process_name}) via kernel SIGSTOP.")
+        logger.info(f"SIMULATION: recorded quarantine of PID {pid} ({process_name}); no signal sent.")
         return True
 
     def release_process(self, pid: int) -> bool:
@@ -96,7 +95,7 @@ class ProcessQuarantineEngine:
         """
         if pid in self._quarantined_pids:
             self._quarantined_pids.remove(pid)
-            logger.info(f"ProcessQuarantineEngine: Released PID {pid} via SIGCONT.")
+            logger.info(f"SIMULATION: removed PID {pid} from quarantine registry; no signal sent.")
             return True
         return False
 

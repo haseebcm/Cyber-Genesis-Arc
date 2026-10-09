@@ -193,7 +193,7 @@
         <!-- Panel 3: Attack Injection & Domain Nullification -->
         <div class="card">
             <h3>Live Attack Injection Console</h3>
-            <p style="font-size:12px; color:var(--text-muted);">Simulate real-time multi-dimensional attacks:</p>
+            <p style="font-size:12px; color:var(--text-muted);">Simulation controls (disabled in monitor mode):</p>
             <div class="btn-group">
                 <button onclick="injectAttack('identity_compromise')">Identity Attack</button>
                 <button onclick="injectAttack('privilege_escalation')">Privilege Escalation</button>
@@ -238,17 +238,29 @@
             });
         }
 
+        function authHeaders() {
+            const token = sessionStorage.getItem('h11Token');
+            return token ? {'Authorization': 'Bearer ' + token} : {};
+        }
         async function fetchStatus() {
             try {
-                const res = await fetch('/api/v1/status');
+                const res = await fetch('/api/v1/status', {headers: authHeaders()});
+                if (res.status === 401) {
+                    const token = prompt("Enter the API bearer token");
+                    if (token) sessionStorage.setItem("h11Token", token);
+                    return;
+                }
+                if (!res.ok) throw new Error("Status unavailable");
                 const data = await res.json();
                 
-                document.getElementById('statusBadge').innerText = data.status || 'PERMITTED';
-                document.getElementById('genesisValue').innerText = (data.genesis_value >= 0 ? '+' : '') + (data.genesis_value || 1.0).toFixed(4);
+                document.getElementById('statusBadge').innerText = data.calibrating ? 'CALIBRATING' : data.status;
+                document.title = 'H11 CGA — ' + data.mode;
+                document.querySelectorAll('button[onclick]').forEach(b => b.disabled = data.mode !== 'simulation');
+                document.getElementById('genesisValue').innerText = (data.genesis_value >= 0 ? '+' : '') + (data.genesis_value ?? 0).toFixed(4);
                 document.getElementById('drValue').innerText = (data.dr_value || 0).toFixed(4);
-                document.getElementById('hsaValue').innerText = (data.hsa_coordinate >= 0 ? '+' : '') + (data.hsa_coordinate || -1.0).toFixed(4);
+                document.getElementById('hsaValue').innerText = (data.hsa_coordinate >= 0 ? '+' : '') + (data.hsa_coordinate ?? 0).toFixed(4);
                 document.getElementById('hsaZone').innerText = data.hsa_zone || 'CONTROLLED';
-                document.getElementById('bufferValue').innerText = (data.security_buffer || 1.0).toFixed(4);
+                document.getElementById('bufferValue').innerText = (data.security_buffer ?? 0).toFixed(4);
                 document.getElementById('cciValue').innerText = (data.cci_value || 0).toFixed(4);
 
                 if (data.state_vector) {
@@ -282,7 +294,7 @@
         async function injectAttack(attackName) {
             await fetch('/api/v1/attack', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {...authHeaders(), 'Content-Type': 'application/json'},
                 body: JSON.stringify({attack: attackName, severity: 0.7})
             });
             fetchStatus();
@@ -291,7 +303,8 @@
         async function triggerSelfHeal() {
             await fetch('/api/v1/self-heal', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'}
+                headers: {...authHeaders(), 'Content-Type': 'application/json'},
+                body: JSON.stringify({})
             });
             fetchStatus();
         }

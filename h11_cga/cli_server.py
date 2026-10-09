@@ -22,8 +22,8 @@ def main() -> None:
     parser.add_argument(
         "--host",
         type=str,
-        default="0.0.0.0",
-        help="Server host address (default: 0.0.0.0).",
+        default="127.0.0.1",
+        help="Server host address (default: 127.0.0.1).",
     )
     parser.add_argument(
         "--port",
@@ -31,9 +31,10 @@ def main() -> None:
         default=8080,
         help="Server HTTP port (default: 8080).",
     )
+    parser.add_argument("--demo", action="store_true", help="Enable isolated simulation controls; no host enforcement")
     args = parser.parse_args()
 
-    server = ControlPlaneServer(host=args.host, port=args.port)
+    server = ControlPlaneServer(host=args.host, port=args.port, demo=args.demo)
     try:
         server.start()
     except KeyboardInterrupt:

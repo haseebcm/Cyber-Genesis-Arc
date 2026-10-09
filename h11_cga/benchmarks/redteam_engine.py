@@ -2,8 +2,8 @@
 H¹¹-CGA Red-Team Attack Benchmark Engine
 ==========================================
 
-Automated Benchmark Engine executing 10 complex attack scenarios comparing
-H¹¹-CGA State-Space Convergence against Traditional Rule-Based SIEM/EDR.
+Synthetic scenario harness measuring H¹¹-CGA model responses.
+No external SIEM/EDR is evaluated; comparison metrics are unavailable.
 """
 
 from __future__ import annotations
@@ -38,14 +38,14 @@ class ScenarioResult:
     h11_time_to_containment_ticks: int
 
     # Traditional SIEM/EDR Metrics (Simulated Baseline)
-    trad_detected: bool
-    trad_detection_tick: int
-    trad_alert_count: int
-    trad_false_negatives: int
+    trad_detected: Optional[bool]
+    trad_detection_tick: Optional[int]
+    trad_alert_count: Optional[int]
+    trad_false_negatives: Optional[int]
 
     # Speedup & Improvement Ratios
-    detection_speedup_ratio: float
-    cascade_suppression_pct: float
+    detection_speedup_ratio: Optional[float]
+    cascade_suppression_pct: Optional[float]
 
     execution_time_ms: float
 
@@ -56,9 +56,9 @@ class BenchmarkReport:
 
     total_scenarios: int
     h11_detection_rate_pct: float
-    trad_detection_rate_pct: float
-    avg_speedup_ratio: float
-    avg_cascade_suppression_pct: float
+    trad_detection_rate_pct: Optional[float]
+    avg_speedup_ratio: Optional[float]
+    avg_cascade_suppression_pct: Optional[float]
     results: List[ScenarioResult] = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
 
@@ -87,7 +87,9 @@ class RedTeamBenchmarkEngine:
 
     def run_scenario(self, scenario_id: int) -> ScenarioResult:
         """Run a single attack scenario benchmark."""
-        t0 = time.time()
+        t0 = time.perf_counter()
+        if not isinstance(scenario_id, int) or not 0 <= scenario_id < len(self._scenarios):
+            raise ValueError("Invalid scenario ID")
         name, desc = self._scenarios[scenario_id]
 
         engine = CyberGenesisEngine()
@@ -101,12 +103,6 @@ class RedTeamBenchmarkEngine:
         h11_actions_count = 0
         h11_containment_tick = -1
 
-        # Traditional SIEM/EDR Simulation State
-        trad_detected = False
-        trad_detection_tick = -1
-        trad_alerts = 0
-        trad_false_negatives = 0
-
         # Simulate 10 ticks of attack progression
         attack_ticks = 10
         for tick in range(1, attack_ticks + 1):
@@ -115,22 +111,16 @@ class RedTeamBenchmarkEngine:
             # Map scenario to attack patterns
             if scenario_id == 0:  # APT Cascade
                 assessment = engine.inject_attack("privilege_escalation", severity=min(severity, 0.8))
-                trad_alert_trigger = tick >= 5  # Traditional SIEM delays until 5th stage
             elif scenario_id == 1:  # Zero-day
                 assessment = engine.inject_attack("zero_day", severity=min(severity, 0.85))
-                trad_alert_trigger = tick >= 8  # Misses zero-day signatures until late
             elif scenario_id == 2:  # Insider threat
                 assessment = engine.inject_attack("insider_threat", severity=min(severity, 0.5))
-                trad_alert_trigger = tick >= 7  # Slow burn escapes initial rules
             elif scenario_id == 3:  # DDoS
                 assessment = engine.inject_attack("ddos", severity=min(severity, 0.9))
-                trad_alert_trigger = tick >= 3  # Traffic spike alerts early
             elif scenario_id == 4:  # AI Prompt Injection
                 assessment = engine.inject_attack("identity_compromise", severity=min(severity, 0.7))
-                trad_alert_trigger = tick >= 6
             else:  # General attack patterns
                 assessment = engine.inject_attack("lateral_movement", severity=min(severity, 0.6))
-                trad_alert_trigger = tick >= 4
 
             # Evaluate H¹¹-CGA metrics
             gc = assessment.genesis_value
@@ -147,25 +137,7 @@ class RedTeamBenchmarkEngine:
             if h11_detected and h11_containment_tick == -1 and (assessment.status == SystemStatus.CONTAINMENT or assessment.status == SystemStatus.EMERGENCY):
                 h11_containment_tick = tick
 
-            # Evaluate Traditional SIEM/EDR baseline
-            if trad_alert_trigger:
-                trad_alerts += 3
-                if not trad_detected:
-                    trad_detected = True
-                    trad_detection_tick = tick
-            else:
-                trad_false_negatives += 1
-
-        exec_time_ms = (time.time() - t0) * 1000.0
-
-        if h11_detection_tick <= 0:
-            h11_detection_tick = 1
-
-        if trad_detection_tick <= 0:
-            trad_detection_tick = 8
-
-        speedup = float(trad_detection_tick) / float(h11_detection_tick)
-        cascade_suppression = float(np.clip(85.0 + (scenario_id * 1.2), 75.0, 98.0))
+        exec_time_ms = (time.perf_counter() - t0) * 1000.0
 
         return ScenarioResult(
             scenario_name=name,
@@ -176,13 +148,13 @@ class RedTeamBenchmarkEngine:
             h11_max_dr=h11_max_dr,
             h11_hsa_zone=h11_hsa_zone,
             h11_actions_generated=h11_actions_count,
-            h11_time_to_containment_ticks=h11_containment_tick if h11_containment_tick > 0 else 3,
-            trad_detected=trad_detected,
-            trad_detection_tick=trad_detection_tick,
-            trad_alert_count=trad_alerts,
-            trad_false_negatives=trad_false_negatives,
-            detection_speedup_ratio=round(speedup, 2),
-            cascade_suppression_pct=round(cascade_suppression, 1),
+            h11_time_to_containment_ticks=h11_containment_tick,
+            trad_detected=None,
+            trad_detection_tick=None,
+            trad_alert_count=None,
+            trad_false_negatives=None,
+            detection_speedup_ratio=None,
+            cascade_suppression_pct=None,
             execution_time_ms=round(exec_time_ms, 2),
         )
 
@@ -194,16 +166,12 @@ class RedTeamBenchmarkEngine:
             results.append(res)
 
         h11_detected_count = sum(1 for r in results if r.h11_detected)
-        trad_detected_count = sum(1 for r in results if r.trad_detected)
-        avg_speedup = float(np.mean([r.detection_speedup_ratio for r in results]))
-        avg_suppression = float(np.mean([r.cascade_suppression_pct for r in results]))
-
         return BenchmarkReport(
             total_scenarios=len(results),
             h11_detection_rate_pct=round((h11_detected_count / len(results)) * 100.0, 1),
-            trad_detection_rate_pct=round((trad_detected_count / len(results)) * 100.0, 1),
-            avg_speedup_ratio=round(avg_speedup, 2),
-            avg_cascade_suppression_pct=round(avg_suppression, 1),
+            trad_detection_rate_pct=None,
+            avg_speedup_ratio=None,
+            avg_cascade_suppression_pct=None,
             results=results,
             timestamp=time.time(),
         )

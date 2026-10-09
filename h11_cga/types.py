@@ -216,12 +216,15 @@ class SecurityState:
     """Timestamp when this state was recorded."""
 
     def __post_init__(self) -> None:
-        self.vector = np.asarray(self.vector, dtype=np.float64)
+        self.vector = np.array(self.vector, dtype=np.float64, copy=True)
         if self.vector.shape != (NUM_DIMENSIONS,):
             raise ValueError(
                 f"State vector must have {NUM_DIMENSIONS} dimensions, "
                 f"got {self.vector.shape}"
             )
+
+        if not np.all(np.isfinite(self.vector)) or np.any((self.vector < 0) | (self.vector > 1)):
+            raise ValueError("State coordinates must be finite and in [0, 1]")
 
     def __getitem__(self, key: int | str) -> float:
         if isinstance(key, str):
@@ -273,6 +276,12 @@ class SecurityBaseline:
         self.reference = np.asarray(self.reference, dtype=np.float64)
         self.lower_bound = np.asarray(self.lower_bound, dtype=np.float64)
         self.upper_bound = np.asarray(self.upper_bound, dtype=np.float64)
+        for value in (self.reference, self.lower_bound, self.upper_bound):
+            if value.shape != (NUM_DIMENSIONS,) or not np.all(np.isfinite(value)):
+                raise ValueError("Baseline arrays must be finite 11-dimensional vectors")
+        if np.any(self.lower_bound > self.reference) or np.any(self.reference > self.upper_bound):
+            raise ValueError("Baseline reference must lie inside its envelope")
+
 
     def is_within_envelope(self, state: SecurityState) -> bool:
         """Check if a state is within the allowable envelope."""
@@ -759,7 +768,11 @@ class SecurityEvent:
     timestamp: float = field(default_factory=time.time)
 
     def __post_init__(self) -> None:
-        self.impact = np.asarray(self.impact, dtype=np.float64)
+        self.impact = np.array(self.impact, dtype=np.float64, copy=True)
+        if self.impact.shape != (NUM_DIMENSIONS,) or not np.all(np.isfinite(self.impact)):
+            raise ValueError("Event impact must be a finite 11-dimensional vector")
+        if not np.isfinite(self.severity) or not 0 <= self.severity <= 1:
+            raise ValueError("Event severity must be in [0, 1]")
 
 
 @dataclass
@@ -787,6 +800,9 @@ class CGAConfig:
     Contains all tunable parameters: weights, thresholds, amplification
     factors, and operational constants.
     """
+
+    history_limit: int = 1000
+    """Maximum retained assessments and audit events."""
 
     # --- Genesis Equation weights ---
     alpha: float = 0.25
@@ -964,6 +980,8 @@ class CGAConfig:
     """
 
     def __post_init__(self) -> None:
+        if not isinstance(self.history_limit, int) or self.history_limit < 1:
+            raise ValueError("history_limit must be a positive integer")
         self.dr_weights = np.asarray(self.dr_weights, dtype=np.float64)
         self.dr_sigmas = np.asarray(self.dr_sigmas, dtype=np.float64)
         self.ule_capacity = np.asarray(self.ule_capacity, dtype=np.float64)

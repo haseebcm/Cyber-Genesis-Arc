@@ -59,6 +59,8 @@ class SecurityStateSpace:
 
     def apply_telemetry(self, telemetry: TelemetryInput) -> SecurityState:
         """Map raw telemetry into dimensions, accumulate events, clip once."""
+        if any(not np.isfinite(v) or not 0 <= v <= 1 for v in telemetry.raw_values.values()):
+            raise ValueError("Telemetry coordinates must be finite and in [0, 1]")
         new_vector = self.current_state.vector.copy()
 
         for dim_name, val in telemetry.raw_values.items():

@@ -9,6 +9,10 @@ attack injection endpoints, domain control APIs, and the embedded SOC Dashboard.
 from __future__ import annotations
 
 import json
+import hmac
+import math
+import threading
+from collections import deque
 import logging
 import os
 import time
@@ -65,6 +69,28 @@ def get_shared_license() -> LicenseManager:
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     """Handle requests in separate threads."""
     daemon_threads = True
+    request_queue_size = 32
+
+    def __init__(self, *args, **kwargs):
+        self._slots = threading.BoundedSemaphore(32)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
 
 
 class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
@@ -72,12 +98,24 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
     HTTP Request Handler for H¹¹-CGA Control Plane REST API.
     """
 
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(5.0)
+
+    def _authorized(self):
+        token = self.server.runtime.api_token
+        if token and not hmac.compare_digest(self.headers.get("Authorization", "").encode("utf-8"), ("Bearer " + token).encode("utf-8")):
+            self._send_json({"error": "Authentication required"}, 401)
+            return False
+        return True
+
     def _send_json(self, data: Dict[str, Any], status_code: int = 200) -> None:
         """Helper to return JSON response."""
-        body = json.dumps(data, indent=2).encode("utf-8")
+        body = json.dumps(_json_safe(data), indent=2, allow_nan=False).encode("utf-8")
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -91,13 +129,26 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self) -> None:
+    def do_GET(self):
+        with self.server.runtime.lock:
+            self._get_snapshot()
+
+    def _get_snapshot(self) -> None:
         """Handle HTTP GET requests."""
-        engine = get_shared_engine()
-        hub = get_shared_hub()
-        lic = get_shared_license()
+        runtime = self.server.runtime
+        engine, hub, lic = runtime.engine, runtime.hub, runtime.license
 
         path = self.path.split("?")[0]
+
+        if path == "/readyz":
+            ready = runtime.assessment is not None and not runtime.engine.is_calibrating and not runtime.last_error and time.monotonic() - runtime.last_sample < runtime.interval * 3
+            self._send_json({"ready": bool(ready)}, 200 if ready else 503)
+            return
+        if path == "/healthz":
+            self._send_json({"status": "ok", "mode": runtime.mode})
+            return
+        if path.startswith("/api/") and not self._authorized():
+            return
 
         if path == "/" or path == "/dashboard":
             # Serve embedded static SOC Web Dashboard UI
@@ -110,8 +161,10 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/v1/status":
             # Process tick with current telemetry
-            telemetry = hub.collect_all()
-            assessment = engine.process_tick(telemetry)
+            assessment = runtime.assessment
+            if assessment is None:
+                self._send_json({"status": "STARTING"}, 503)
+                return
 
             actions = [
                 {
@@ -124,11 +177,16 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
             ]
 
             from h11_cga.core.advanced import StateIntegrityProver
-            prover = StateIntegrityProver()
+            prover = runtime.prover
             signature = prover.sign_state(assessment.current_state)
 
             data = {
-                "tick": engine.get_dashboard().get("tick", 0),
+                "tick": runtime.tick,
+                "mode": runtime.mode,
+                "calibrating": engine.is_calibrating,
+                "response_enforcement": "simulation" if runtime.demo else "recommendations_only",
+                "telemetry_provenance": hub.last_provenance,
+                "telemetry_skipped": hub.last_skipped,
                 "status": assessment.status.value,
                 "genesis_value": float(assessment.genesis_value),
                 "dr_value": float(assessment.dr_value),
@@ -185,7 +243,8 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
                 "dimension_names": list(DIMENSION_NAMES),
                 "recommended_actions": actions,
                 "state_signature": signature,
-                "timestamp": time.time(),
+                "state_timestamp": assessment.current_state.timestamp,
+                "timestamp": assessment.timestamp,
             }
             self._send_json(data)
 
@@ -198,71 +257,144 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "Endpoint not found", "path": path}, status_code=404)
 
-    def do_POST(self) -> None:
-        """Handle HTTP POST requests."""
-        engine = get_shared_engine()
-        path = self.path.split("?")[0]
-
-        content_length = int(self.headers.get("Content-Length", 0))
-        body_bytes = self.rfile.read(content_length) if content_length > 0 else b"{}"
-
+    def do_POST(self):
+        runtime = self.server.runtime
+        if not self._authorized():
+            return
+        if not runtime.demo:
+            self._send_json({"error": "Simulation controls are disabled in monitor mode"}, 403)
+            return
+        if self.headers.get("Origin"):
+            self._send_json({"error": "Cross-origin mutations are disabled"}, 403)
+            return
+        if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+            self._send_json({"error": "application/json required"}, 415)
+            return
         try:
-            payload = json.loads(body_bytes.decode("utf-8"))
-        except Exception:
-            payload = {}
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 1 or length > 16384:
+                self._send_json({"error": "Request body must contain 1–16384 bytes"}, 413)
+                return
+            payload = json.loads(self.rfile.read(length), parse_constant=lambda x: (_ for _ in ()).throw(ValueError("Nonfinite JSON")))
+            if not isinstance(payload, dict):
+                raise ValueError("JSON object required")
+            path = self.path.split("?")[0]
+            with runtime.lock:
+                if path == "/api/v1/attack":
+                    if set(payload) - {"attack", "severity"}:
+                        raise ValueError("Unexpected fields")
+                    attack = payload.get("attack", "identity_compromise")
+                    severity = payload.get("severity", 0.5)
+                    if isinstance(severity, bool) or not isinstance(severity, (int, float)):
+                        raise ValueError("Numeric severity required")
+                    assessment = runtime.engine.inject_attack(attack, severity)
+                    message = "Simulated attack injected"
+                elif path == "/api/v1/self-heal":
+                    if payload:
+                        raise ValueError("Empty object required")
+                    from h11_cga.core.advanced import SelfHealingProjector
+                    engine = runtime.engine
+                    restored, _, _ = SelfHealingProjector(engine._config).project_to_permissible_manifold(engine._sense.get_current_state(), engine._sense.get_baseline())
+                    engine._sense.current_state = restored
+                    assessment = engine.process_tick()
+                    message = "Simulation state projected; no host remediation performed"
+                else:
+                    self._send_json({"error": "Endpoint not found"}, 404)
+                    return
+                runtime.publish(assessment)
+                runtime.audit.append({"timestamp": time.time(), "path": path, "status": assessment.status.value})
+                logger.info("simulation_mutation path=%s status=%s", path, assessment.status.value)
+            self._send_json({"message": message, "new_status": assessment.status.value, "genesis_value": assessment.genesis_value})
+        except (ValueError, TypeError, UnicodeError):
+            self._send_json({"error": "Invalid request payload"}, 400)
+        except TimeoutError:
+            self._send_json({"error": "Request timed out"}, 408)
 
-        if path == "/api/v1/attack":
-            attack_name = payload.get("attack", "identity_compromise")
-            severity = float(payload.get("severity", 0.5))
 
-            assessment = engine.inject_attack(attack_name, severity=severity)
-            self._send_json({
-                "message": f"Injected attack '{attack_name}' with severity {severity}.",
-                "new_status": assessment.status.value,
-                "genesis_value": float(assessment.genesis_value),
-            })
+def _json_safe(value):
+    """Undefined model quantities are JSON null, never nonstandard NaN/Infinity."""
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, (float, np.floating)) and not math.isfinite(value):
+        return None
+    return value
 
-        elif path == "/api/v1/self-heal":
-            from h11_cga.core.advanced import SelfHealingProjector
-            projector = SelfHealingProjector(engine._config)
-            current = engine._sense.get_current_state()
-            baseline = engine._sense.get_baseline()
-            restored, energy, _ = projector.project_to_permissible_manifold(current, baseline)
-            engine._sense.current_state = restored
-            assessment = engine.process_tick()
-            self._send_json({
-                "message": f"Applied Self-Healing Projection R_genesis. Energy restored = {energy:.4f}",
-                "energy_restored": energy,
-                "new_status": assessment.status.value,
-                "genesis_value": float(assessment.genesis_value),
-            })
 
-        else:
-            self._send_json({"error": "Endpoint not found", "path": path}, status_code=404)
+class Runtime:
+    def __init__(self, demo=False, api_token=None, interval=1.0):
+        from h11_cga.core.advanced import StateIntegrityProver
+        self.demo, self.api_token, self.interval = demo, api_token, interval
+        self.mode = "simulation" if demo else "monitor"
+        self.engine = CyberGenesisEngine(CGAConfig(baseline_calibration_ticks=0 if demo else 20))
+        self.hub = TelemetryIngestionHub()
+        if not demo:
+            self.hub.register_adapter(SystemAdapter())
+            self.hub.register_adapter(EBPFNetworkProbe())
+        self.license = LicenseManager(tier=LicenseTier.COMMUNITY_OPEN_CORE)
+        self.prover = StateIntegrityProver()
+        self.lock = threading.RLock()
+        self.audit = deque(maxlen=1000)
+        self.assessment = None
+        self.tick = 0
+        self.last_sample = 0.0
+        self.last_error = False
+        self.stop_event = threading.Event()
+
+    def publish(self, assessment):
+        self.tick = self.engine.get_dashboard()["tick"]
+        self.assessment = assessment
+        self.last_sample = time.monotonic()
+        self.last_error = False
+
+    def sample(self):
+        with self.lock:
+            self.publish(self.engine.process_tick(None if self.demo else self.hub.collect_all()))
+
+    def run(self):
+        while not self.stop_event.wait(self.interval):
+            try:
+                self.sample()
+            except Exception:
+                self.last_error = True
+                logger.exception("Telemetry cycle failed")
 
 
 class ControlPlaneServer:
-    """
-    H¹¹-CGA Control Plane REST API Server Daemon.
-    """
+    """Local-first monitoring service; remote binds require bearer authentication."""
+    def __init__(self, host="127.0.0.1", port=8080, *, demo=False, api_token=None, interval=1.0):
+        api_token = api_token or os.environ.get("H11_API_TOKEN")
+        if host not in {"127.0.0.1", "localhost", "::1"} and not api_token:
+            raise ValueError("Remote binding requires H11_API_TOKEN")
+        if api_token is not None and len(api_token) < 32:
+            raise ValueError("API token must contain at least 32 characters")
+        if not math.isfinite(interval) or interval < 0.05:
+            raise ValueError("Sampling interval must be at least 0.05 seconds")
+        self.host, self.port = host, port
+        self.runtime = Runtime(demo, api_token, interval)
+        self._server = None
+        self._worker = None
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8080) -> None:
-        self.host = host
-        self.port = port
-        self._server: Optional[ThreadedHTTPServer] = None
+    def start(self):
+        self._server = ThreadedHTTPServer((self.host, self.port), ControlPlaneHTTPHandler)
+        self.port = self._server.server_address[1]
+        self._server.runtime = self.runtime
+        self.runtime.sample()
+        self._worker = threading.Thread(target=self.runtime.run, daemon=True)
+        self._worker.start()
+        logger.info("Control plane listening on %s:%s (%s)", self.host, self.port, self.runtime.mode)
+        try:
+            self._server.serve_forever()
+        finally:
+            self.runtime.stop_event.set()
+            self._server.server_close()
+            if self._worker:
+                self._worker.join(timeout=5)
+            for name in self.runtime.hub.registered_adapters:
+                self.runtime.hub.unregister_adapter(name)
 
-    def start(self) -> None:
-        """Start the Control Plane HTTP Server."""
-        server_address = (self.host, self.port)
-        self._server = ThreadedHTTPServer(server_address, ControlPlaneHTTPHandler)
-        logger.info(f"H¹¹-CGA Control Plane Server running on http://{self.host}:{self.port}")
-        print(f"\n  * H11-CGA Control Plane Server running on http://localhost:{self.port}")
-        print(f"  * Open http://localhost:{self.port} in your browser for the Web Dashboard UI.\n")
-        self._server.serve_forever()
-
-    def stop(self) -> None:
-        """Stop the Control Plane HTTP Server."""
+    def stop(self):
+        self.runtime.stop_event.set()
         if self._server:
             self._server.shutdown()
-            self._server.server_close()
-            logger.info("H¹¹-CGA Control Plane Server stopped.")

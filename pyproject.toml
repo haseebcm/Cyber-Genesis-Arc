@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "h11-cga"
-version = "4.0.0"
+version = "4.1.0"
 description = "H¹¹ Cyber Genesis Architecture — a cybersecurity architecture governed by the 11 Universal Laws of the H¹¹ First Knowledge framework"
 readme = "README.md"
 license = {text = "MIT"}
@@ -47,3 +47,6 @@ include = ["h11_cga*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.setuptools.package-data]
+"h11_cga.server" = ["static/*.html"]

@@ -11,6 +11,10 @@ This is the primary entry point for the H¹¹ Cyber Genesis Architecture.
 from __future__ import annotations
 
 import time
+import copy
+from collections import deque
+from threading import RLock
+from functools import wraps
 from typing import Optional, List
 
 import numpy as np
@@ -37,6 +41,14 @@ from h11_cga.engines.converge import ConvergeEngine
 from h11_cga.engines.encrypt import EncryptICEngine
 
 
+def synchronized(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapped
+
+
 class CyberGenesisEngine:
     """The main control loop orchestrator for H¹¹-CGA.
 
@@ -49,6 +61,7 @@ class CyberGenesisEngine:
         if config is None:
             config = CGAConfig()
         self._config = config
+        self._lock = RLock()
 
         # Core math components — T_c is shared with CCI so cascade math
         # and state propagation use the same 121 influence nodes.
@@ -80,11 +93,12 @@ class CyberGenesisEngine:
         self._sense.update_baseline(nominal, tolerance=0.3)
 
         self._tick_count: int = 0
-        self._assessment_history: List[ThreatAssessment] = []
-        self._event_log: List[dict] = []
+        self._assessment_history = deque(maxlen=config.history_limit)
+        self._event_log = deque(maxlen=config.history_limit)
         self._last_dr: float = 0.0
         self._last_dr_adjusted: float = 0.0
         self._last_tick_time: float = time.time()
+    @synchronized
     def process_tick(
         self, telemetry: Optional[TelemetryInput] = None
     ) -> ThreatAssessment:
@@ -389,15 +403,25 @@ class CyberGenesisEngine:
         )
         self._coherence.record_prediction(settled.vector, delta, residual)
 
+    @synchronized
+    def project_event(self, event: SecurityEvent) -> ThreatAssessment:
+        """Evaluate a proposal on an isolated model; never alter observed state."""
+        clone = object.__new__(type(self))
+        clone.__dict__ = copy.deepcopy({k: v for k, v in self.__dict__.items() if k != "_lock"})
+        clone._lock = RLock()
+        return clone.inject_event(event)
+
     # ------------------------------------------------------------------
     # Event injection
     # ------------------------------------------------------------------
 
+    @synchronized
     def inject_event(self, event: SecurityEvent) -> ThreatAssessment:
         """Apply a security event to the MCC state and run a full tick."""
         self._sense.get_state_space().apply_event(event)
         return self.process_tick()
 
+    @synchronized
     def inject_attack(
         self, attack_name: str, severity: float = 0.5
     ) -> ThreatAssessment:
@@ -445,7 +469,11 @@ class CyberGenesisEngine:
         }
 
         impact = np.zeros(NUM_DIMENSIONS)
-        pattern = patterns.get(attack_name.lower(), {})
+        if not isinstance(attack_name, str) or attack_name.lower() not in patterns:
+            raise ValueError("Unknown attack scenario")
+        if not np.isfinite(severity) or not 0 <= severity <= 1:
+            raise ValueError("severity must be finite and in [0, 1]")
+        pattern = patterns[attack_name.lower()]
         target_dims = []
         for dim_name, multiplier in pattern.items():
             idx = DIMENSION_INDEX.get(dim_name)
@@ -492,6 +520,7 @@ class CyberGenesisEngine:
             return 1.0
         return self._assessment_history[-1].genesis_value
 
+    @synchronized
     def get_dashboard(self) -> dict:
         """Return a complete snapshot of the current system state."""
         if not self._assessment_history:
@@ -559,6 +588,7 @@ class CyberGenesisEngine:
             "regeneration_energy": latest.regeneration_energy,
         }
 
+    @synchronized
     def get_assessment_history(self) -> List[ThreatAssessment]:
         """Return all past threat assessments."""
         return list(self._assessment_history)
@@ -567,10 +597,12 @@ class CyberGenesisEngine:
         """Return the underlying 11×11 transformation matrix."""
         return self._transform
 
+    @synchronized
     def set_domain_activation(self, dimension: str | int, level: float) -> None:
         """Set domain activation level (delegates to Encrypt-IC engine)."""
         self._encrypt.get_domain_nullifier().activate_domain(dimension, level)
 
+    @synchronized
     def reset(self) -> None:
         """Reset all engines and counters."""
         self._tick_count = 0

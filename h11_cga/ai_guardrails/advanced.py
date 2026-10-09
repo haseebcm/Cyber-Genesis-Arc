@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, Any, List, Optional, Tuple
 
 import numpy as np
@@ -36,11 +36,12 @@ class SwarmContext:
     active_agent_count: int
     total_calls_in_window: int
     shared_trust_score: float = 1.0
+    window_started: float = field(default_factory=time.monotonic)
 
 
 class SemanticEntropyFilter:
     """
-    Semantic Entropy Filter for detecting indirect prompt injections,
+    Keyword risk heuristic for detecting known prompt-injection phrases,
     stealthy jailbreaks, and adversarial context poisoning.
     """
 
@@ -73,7 +74,7 @@ class SemanticEntropyFilter:
 
         for kw in self._suspicious_keywords:
             if kw in text_normalized:
-                score += 0.40
+                score += 0.70
 
         # Measure text character distribution entropy ratio
         unique_chars = len(set(text_normalized))
@@ -107,12 +108,19 @@ class SwarmAIGuardrailEngine(AIAgentGuardrailEngine):
         """
         Inspect tool call request within a multi-agent swarm context.
         """
+        request = replace(request)
         if swarm_id not in self._swarms:
+            if len(self._swarms) >= 1000:
+                raise PermissionError("Swarm registry capacity exceeded")
             self._swarms[swarm_id] = SwarmContext(
                 swarm_id=swarm_id, active_agent_count=1, total_calls_in_window=0
             )
 
         swarm = self._swarms[swarm_id]
+        now = time.monotonic()
+        if now - swarm.window_started >= 60:
+            swarm.total_calls_in_window = 0
+            swarm.window_started = now
         swarm.total_calls_in_window += 1
 
         # Check semantic entropy of prompt context
@@ -127,7 +135,7 @@ class SwarmAIGuardrailEngine(AIAgentGuardrailEngine):
 
         # If swarm call rate is abnormally high (> 50 calls in window), treat as runaway loop
         if swarm.total_calls_in_window > 50:
-            request.category = AIToolCategory.SPAWN_SUBAGENT
+            request.category = AIToolCategory.PROMPT_INJECTION_DETECTED
             logger.warning(f"Swarm '{swarm_id}': Runaway subagent loop detected.")
 
         return self.inspect_and_govern(request)

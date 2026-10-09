@@ -36,6 +36,8 @@ def run_monitor(
         interval: Polling interval between ticks in seconds.
         calibrate_ticks: Warmup ticks used to learn this host's baseline.
     """
+    if not np.isfinite(interval) or interval <= 0 or not np.isfinite(duration) or duration < 0:
+        raise ValueError("interval must be positive and duration nonnegative")
     print("\n" + "=" * 76)
     print("  H11 CYBER GENESIS ARCHITECTURE (H11-CGA) -- LIVE SYSTEM MONITOR")
     print("=" * 76)

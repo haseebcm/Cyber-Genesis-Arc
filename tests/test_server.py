@@ -20,11 +20,13 @@ from h11_cga import (
 
 @pytest.fixture(scope="module")
 def test_server():
-    server = ControlPlaneServer(host="127.0.0.1", port=8888)
+    server = ControlPlaneServer(host="127.0.0.1", port=8888, demo=True)
     thread = threading.Thread(target=server.start, daemon=True)
     thread.start()
     time.sleep(1.0)
     yield server
+    server.stop()
+    thread.join(timeout=5)
 
 
 def test_license_manager():

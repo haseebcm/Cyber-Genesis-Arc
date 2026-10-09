@@ -3,7 +3,7 @@
 [![Author: Mohamed Haseeb C M](https://img.shields.io/badge/author-Mohamed%20Haseeb%20C%20M-blue.svg)](https://github.com/haseebcm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Architecture: 4.0](https://img.shields.io/badge/architecture-4.0--SOVEREIGN-purple.svg)](#foundation-the-11-universal-laws)
+[![Architecture: 4.0](https://img.shields.io/badge/architecture-4.1--HARDENED-purple.svg)](#foundation-the-11-universal-laws)
 
 > **Created & Designed by Mohamed Haseeb C M**
 >
@@ -14,6 +14,17 @@
 > high-risk states are converged, and execution is permitted only where the Laws are satisfied.
 
 ---
+
+## Hardened runtime release 4.1
+
+See [deployment and presentation instructions](docs/DEPLOYMENT.md) for an offline demo and secure deployment. The H11 model is preserved; the runtime now isolates proposal scoring, bounds histories, validates inputs, requires registered tool policies, and secures server defaults.
+
+```bash
+h11-server --demo  # isolated simulation dashboard on loopback
+h11-server         # read-only host monitoring with baseline calibration
+```
+
+Remote binding requires `H11_API_TOKEN`. Simulation controls are disabled in monitor mode. Dashboard reads use cached assessments and never advance the model. This release is hardened for demonstrations and controlled pilots; incident efficacy and real remediation still require external validation.
 
 ## Contents
 
@@ -511,7 +522,7 @@ reading results, and are stated here rather than left for you to discover in the
 
 **Measured.** The control loop, all core and reflexive operators, the Law layer, Φ₀,
 S_ig, Φ_H11, `SystemAdapter`, and `EBPFNetworkProbe` on Linux all compute from real
-inputs. The 112-test suite exercises them against constructed states with known answers.
+inputs. The test suite exercises them against constructed states with known answers.
 
 **Modelled, not measured.** $T_c$'s 121 couplings are authored from documented cyber
 influence paths, not learned from incident data. Λ_c grades how well they explain
@@ -524,13 +535,11 @@ into the kernel and no process is actually signalled. `KubernetesAdapter` and
 `EBPFNetworkProbe.sample_network_probe` expose simulation entry points that are clearly
 separated from the real `collect()` paths.
 
-**Not a benchmark.** `RedTeamBenchmarkEngine` runs real attack scenarios through the
-engine and records how the engine responds, which is useful. Its *comparison* is not:
-the "traditional SIEM/EDR" baseline is a hardcoded tick threshold chosen per scenario,
-and `cascade_suppression` is computed as `85.0 + scenario_id * 1.2` — a function of the
-loop index, not a measurement. Any speedup or suppression figure it prints is
-illustrative of the scenario design and **must not be read as an empirical result**.
-Earlier versions of this README quoted those numbers as demonstrated; that was wrong.
+**Synthetic scenario harness.** `RedTeamBenchmarkEngine` measures the engine's
+response to constructed attack vectors. No external SIEM/EDR product is evaluated.
+Comparison, speedup, and suppression fields are `None` when unavailable. Earlier
+synthetic comparison values have been removed from the code and example report.
+Detection percentages describe these constructed scenarios only.
 
 **Framework, not code.** The H¹¹ governance concepts ITH¹¹BAT, SGS and ACOS inform the
 design philosophy but have no implementation in this repository.
@@ -606,7 +615,7 @@ Architecture, First Knowledge framework, and implementation.
 @software{h11_cga,
   author      = {Mohamed Haseeb C M},
   title       = {H\textsuperscript{11} Cyber Genesis Architecture},
-  version     = {4.0.0},
+  version     = {4.1.0},
   description = {A cybersecurity architecture governed by the 11 Universal Laws
                  of the H11 First Knowledge framework},
   url         = {https://github.com/haseebcm/Cyber-Genesis-Arc},

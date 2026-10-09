@@ -65,7 +65,7 @@ from h11_cga.server import (
     ControlPlaneServer,
 )
 
-__version__ = '4.0.0'
+__version__ = '4.1.0'
 __codename__ = 'SOVEREIGN'
 
 __all__ = [
