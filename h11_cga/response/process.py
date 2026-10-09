@@ -11,12 +11,18 @@ import time
 import uuid
 import subprocess
 import sys
+from pathlib import Path
 import psutil
 from .audit import AuditStore
 
 
 class ProcessResponseController:
     def __init__(self, allowed_pids, audit_path, max_hold_seconds=30):
+        if sys.platform.startswith("linux"):
+            status = Path("/proc/self/status").read_text()
+            visible_pid = int(next(line.split()[1] for line in status.splitlines() if line.startswith("Pid:")))
+            if visible_pid != os.getpid():
+                raise RuntimeError("Process response requires procfs and the execution PID namespace to match")
         if not math.isfinite(max_hold_seconds) or not 1 <= max_hold_seconds <= 300:
             raise ValueError('Quarantine hold must be between 1 and 300 seconds')
         if len(allowed_pids) > 32:

@@ -10,6 +10,12 @@ from h11_cga.response import ProcessResponseController, AuditStore
 
 @pytest.fixture
 def child():
+    if sys.platform.startswith("linux"):
+        from pathlib import Path
+        status = Path("/proc/self/status").read_text()
+        visible_pid = int(next(line.split()[1] for line in status.splitlines() if line.startswith("Pid:")))
+        if visible_pid != os.getpid():
+            pytest.skip("Host procfs does not match the execution PID namespace")
     try:
         psutil.Process().create_time()
     except psutil.NoSuchProcess:
