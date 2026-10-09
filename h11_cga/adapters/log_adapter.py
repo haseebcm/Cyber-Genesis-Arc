@@ -12,6 +12,8 @@ import json
 import logging
 import re
 import time
+import threading
+from collections import deque
 from typing import Dict, Any, List, Optional
 
 import numpy as np
@@ -36,9 +38,13 @@ class LogAdapter(BaseTelemetryAdapter):
     auditd file access, kernel OOMs) and translates them into H¹¹ SecurityEvents.
     """
 
-    def __init__(self, polling_interval: float = 1.0) -> None:
+    def __init__(self, polling_interval: float = 1.0, max_pending: int = 10000) -> None:
         super().__init__(name="LogTelemetryAdapter", polling_interval=polling_interval)
-        self._pending_events: List[SecurityEvent] = []
+        if isinstance(max_pending, bool) or not isinstance(max_pending, int) or max_pending < 1:
+            raise ValueError("max_pending must be a positive integer")
+        self._pending_events = deque(maxlen=max_pending)
+        self._pending_lock = threading.Lock()
+        self.dropped_events = 0
 
         # Precompiled regex log patterns
         self._patterns = [
@@ -79,6 +85,13 @@ class LogAdapter(BaseTelemetryAdapter):
             ),
         ]
 
+    def _enqueue(self, event: SecurityEvent) -> None:
+        with self._pending_lock:
+            if len(self._pending_events) == self._pending_events.maxlen:
+                self.dropped_events += 1
+            self._pending_events.append(event)
+
+
     def parse_log_line(self, line: str) -> Optional[SecurityEvent]:
         """
         Parse a single log string into a SecurityEvent if a pattern matches.
@@ -101,7 +114,7 @@ class LogAdapter(BaseTelemetryAdapter):
                     metadata={"log_raw": line.strip()},
                     timestamp=now,
                 )
-                self._pending_events.append(event)
+                self._enqueue(event)
                 logger.debug(f"Matched log event {event_type} from line: {line.strip()[:60]}")
                 return event
         return None
@@ -122,6 +135,13 @@ class LogAdapter(BaseTelemetryAdapter):
         else:
             data = json_data
 
+        if not isinstance(data, dict):
+            return None
+        if any(not isinstance(data.get(key, ""), str) for key in ("action", "status", "event_type")):
+            return None
+        severity = data.get("severity", 0.6)
+        if isinstance(severity, bool) or not isinstance(severity, (int, float)) or not np.isfinite(severity) or not 0 <= severity <= 1:
+            return None
         now = time.time()
         event_type = data.get("event_type", "json_audit_event")
         action = data.get("action", "").lower()
@@ -149,7 +169,7 @@ class LogAdapter(BaseTelemetryAdapter):
                 metadata=data,
                 timestamp=now,
             )
-            self._pending_events.append(event)
+            self._enqueue(event)
             return event
 
         return None
@@ -157,8 +177,9 @@ class LogAdapter(BaseTelemetryAdapter):
     def collect(self) -> TelemetryInput:
         """Return pending events and default baseline telemetry."""
         now = time.time()
-        events_to_return = list(self._pending_events)
-        self._pending_events.clear()
+        with self._pending_lock:
+            events_to_return = list(self._pending_events)
+            self._pending_events.clear()
 
         return TelemetryInput(
             raw_values={},

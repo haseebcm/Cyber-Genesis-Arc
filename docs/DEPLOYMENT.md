@@ -1,4 +1,4 @@
-# H11-CGA 4.1 deployment and presentation
+# H11-CGA deployment and presentation
 
 ## Presentation tomorrow
 
@@ -37,6 +37,10 @@ The prompt filter is a keyword heuristic. It is not a semantic safety guarantee.
 
 Implemented: eleven-dimensional state scoring, authored cascade model, origin hypotheses, coherence audits, H11 law scoring, real host counters, secured local monitoring, isolated AI proposal scoring, and explicit tool policies.
 
-Simulated: attack injection, algebraic recovery, XDP packet blocking, and process quarantine. No kernel eBPF program is loaded and no process signal is sent. External product comparisons are unavailable, rather than fabricated.
+Real response: explicitly allowlisted process suspension/resumption, durable SQLite journaling, restart recovery, and a detached deadline watchdog. See WINDOWS.md for configuration.
 
-Still required before a production-security claim: labelled incident and benign-workload evaluation, false-positive/false-negative measurements, workload-specific calibration, a real remediation integration with rollback and outcome verification, deployment load tests, external security review, and operational recovery procedures. Unit tests validate code behavior; they do not establish detection efficacy or H11 physical axioms.
+Simulated: attack injection, algebraic recovery, and XDP packet blocking. No kernel eBPF program is loaded. External product comparisons are unavailable.
+
+Still required before a production-security claim: labelled incident and benign-workload evaluation, false-positive/false-negative measurements, workload-specific calibration, target-environment verification of process remediation and rollback, deployment load tests, external security review, and operational recovery procedures. Unit tests validate code behavior; they do not establish detection efficacy or H11 physical axioms.
+
+See [production validation](PRODUCTION_VALIDATION.md) for evidence requirements and replay tooling.
