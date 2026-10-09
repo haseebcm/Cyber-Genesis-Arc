@@ -142,3 +142,20 @@ def test_authenticated_real_response_api(tmp_path, child):
     finally:
         service.stop()
         thread.join(timeout=5)
+
+
+def test_audit_journal_persists_and_serializes_workers(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    path = tmp_path/'journal.sqlite3'
+    journal = AuditStore(path)
+    journal.prepare('intent', 123, 100.0, time.time()+10, 'durable intent')
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(lambda i: journal.event('worker', {'index':i}), range(20)))
+    assert len(journal.recent()) == 21
+    journal.transition('intent', 'RESUMED')
+    journal.close()
+    journal = AuditStore(path)
+    assert journal.get('intent')['state'] == 'RESUMED'
+    assert not journal.active()
+    assert len(journal.recent()) == 22
+    journal.close()
