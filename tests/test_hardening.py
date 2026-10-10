@@ -180,3 +180,66 @@ def test_same_origin_browser_mutations_and_foreign_origin_denial(service):
     with pytest.raises(urllib.error.HTTPError) as err:
         urllib.request.urlopen(req)
     assert err.value.code == 403
+
+
+def test_forged_host_rejected_before_authentication_or_mutation(service):
+    import http.client
+    server, _ = service(demo=True)
+    before = server.runtime.tick
+    connection = http.client.HTTPConnection('127.0.0.1', server.port, timeout=3)
+    try:
+        connection.request('POST', '/api/v1/attack', body=b'{"attack":"ddos"}', headers={'Host':'attacker.invalid','Origin':'http://attacker.invalid','Content-Type':'application/json'})
+        response = connection.getresponse()
+        assert response.status == 400
+        response.read()
+        assert server.runtime.tick == before
+    finally:
+        connection.close()
+
+
+def test_get_socket_write_does_not_hold_telemetry_lock():
+    from types import SimpleNamespace
+    from h11_cga.server.control_plane import ControlPlaneHTTPHandler
+    lock = threading.RLock()
+    writes = []
+    class SlowClient:
+        def write(self, data):
+            assert not lock._is_owned()
+            writes.append(data)
+    handler = object.__new__(ControlPlaneHTTPHandler)
+    handler.server = SimpleNamespace(runtime=SimpleNamespace(lock=lock))
+    handler.wfile = SlowClient()
+    def snapshot():
+        assert lock._is_owned()
+        handler.wfile.write(b"snapshot")
+    handler._get_snapshot = snapshot
+    handler.do_GET()
+    assert writes == [b"snapshot"]
+
+
+def test_authenticated_concurrent_http_reads_preserve_sample_state(service):
+    server, url = service(demo=True, api_token='t'*64)
+    before = server.runtime.tick
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: call(url+'/api/v1/status', 't'*64), range(100)))
+    assert all(code == 200 and data['tick'] == before for code,data in results)
+    assert server.runtime.tick == before
+
+
+def test_readiness_refuses_missing_or_stale_observations():
+    from h11_cga.server.control_plane import Runtime
+    runtime = Runtime(demo=False, required_dimensions={'authorization','trust','governance'})
+    runtime.engine = CyberGenesisEngine(CGAConfig(baseline_calibration_ticks=0))
+    runtime.publish(runtime.engine.process_tick())
+    result = runtime.readiness()
+    assert not result['ready']
+    assert result['missing_dimensions'] == ['authorization','governance','trust']
+    runtime.hub._last_provenance = {d:['trusted-source'] for d in runtime.required_dimensions}
+    assert runtime.readiness()['ready']
+    runtime.last_sample = time.monotonic()-10
+    assert 'stale_sample' in runtime.readiness()['reasons']
+
+
+def test_unknown_required_dimension_rejected():
+    with pytest.raises(ValueError, match='Unknown required'):
+        ControlPlaneServer(required_dimensions={'invented'})

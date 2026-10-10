@@ -44,3 +44,24 @@ Simulated: attack injection, algebraic recovery, and XDP packet blocking. No ker
 Still required before a production-security claim: labelled incident and benign-workload evaluation, false-positive/false-negative measurements, workload-specific calibration, target-environment verification of process remediation and rollback, deployment load tests, external security review, and operational recovery procedures. Unit tests validate code behavior; they do not establish detection efficacy or H11 physical axioms.
 
 See [production validation](PRODUCTION_VALIDATION.md) for evidence requirements and replay tooling.
+
+## Control-plane availability and origin policy
+
+GET responses are snapshotted under the runtime lock and written to the client after
+releasing it, so slow readers do not hold the telemetry lock. Connection concurrency
+remains bounded to 32 with a five-second socket timeout.
+
+Host headers must match the bound hostname and port. For a TLS reverse proxy or
+wildcard bind, configure `H11_PUBLIC_ORIGIN=https://security.example.com` with the
+exact external origin (no trailing slash/path). The proxy must forward that Host.
+Arbitrary Host headers and browser origins are refused, including on loopback.
+Remote binding still requires a bearer token and a private backend listener.
+
+`/readyz` now returns 503 when required dimensions are missing from the latest
+collection, calibration is incomplete, sampling is stale/failing, or response
+recovery has failed. Its body lists reasons and missing dimensions. Default required
+measurements are the eight host dimensions. Use repeated `--require-dimension`
+options to declare the actual deployment contract. Requiring authorization, trust,
+and governance will keep readiness false until trusted collectors supply them.
+Reducing requirements narrows the coverage claim; it does not establish 11-dimensional
+observation. Simulation readiness is explicitly marked with mode `simulation`.

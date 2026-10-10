@@ -9,6 +9,8 @@ attack injection endpoints, domain control APIs, and the embedded SOC Dashboard.
 from __future__ import annotations
 
 import json
+import io
+from urllib.parse import urlsplit
 import hmac
 import math
 import threading
@@ -102,9 +104,25 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
         super().setup()
         self.connection.settimeout(5.0)
 
+    def parse_request(self):
+        if not super().parse_request():
+            return False
+        hosts = self.headers.get_all("Host", [])
+        if len(hosts) != 1 or hosts[0].lower() not in self.server.allowed_hosts:
+            self._send_json({"error": "Untrusted Host header"}, 400)
+            self.close_connection = True
+            return False
+        return True
+
+    def end_headers(self):
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        super().end_headers()
+
     def _same_origin(self):
         origin = self.headers.get("Origin")
-        return origin is None or origin in {"http://" + self.headers.get("Host", ""), os.environ.get("H11_PUBLIC_ORIGIN", "")}
+        return origin is None or origin in self.server.allowed_origins
 
     def _authorized(self):
         token = self.server.runtime.api_token
@@ -134,8 +152,17 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        with self.server.runtime.lock:
-            self._get_snapshot()
+        # Materialize the entire response under the model lock, then release it
+        # before socket writes. A slow reader cannot stall telemetry sampling.
+        destination = self.wfile
+        buffer = io.BytesIO()
+        try:
+            self.wfile = buffer
+            with self.server.runtime.lock:
+                self._get_snapshot()
+        finally:
+            self.wfile = destination
+        destination.write(buffer.getvalue())
 
     def _get_snapshot(self) -> None:
         """Handle HTTP GET requests."""
@@ -151,8 +178,8 @@ class ControlPlaneHTTPHandler(BaseHTTPRequestHandler):
             self._send_json({"enabled": controller is not None, "allowed_pids": list(controller.allowed) if controller else [], "active": controller.audit.active() if controller else [], "recent": controller.audit.recent() if controller else []})
             return
         if path == "/readyz":
-            ready = runtime.assessment is not None and not runtime.engine.is_calibrating and not runtime.last_error and (runtime.responses is None or not runtime.responses.last_error) and time.monotonic() - runtime.last_sample < runtime.interval * 3
-            self._send_json({"ready": bool(ready)}, 200 if ready else 503)
+            readiness = runtime.readiness()
+            self._send_json(readiness, 200 if readiness["ready"] else 503)
             return
         if path == "/healthz":
             self._send_json({"status": "ok", "mode": runtime.mode})
@@ -375,10 +402,14 @@ def _json_safe(value):
 
 
 class Runtime:
-    def __init__(self, demo=False, api_token=None, interval=1.0, responses=None):
+    def __init__(self, demo=False, api_token=None, interval=1.0, responses=None, required_dimensions=None):
         from h11_cga.core.advanced import StateIntegrityProver
         self.demo, self.api_token, self.interval = demo, api_token, interval
         self.responses = responses
+        defaults = {"identity", "network", "data", "compute", "memory", "execution", "resource", "recovery"}
+        self.required_dimensions = defaults if required_dimensions is None else set(required_dimensions)
+        if not self.required_dimensions <= {name.lower() for name in DIMENSION_NAMES}:
+            raise ValueError("Unknown required telemetry dimension")
         self.mode = "simulation" if demo else "monitor"
         self.engine = CyberGenesisEngine(CGAConfig(baseline_calibration_ticks=0 if demo else 20))
         self.hub = TelemetryIngestionHub()
@@ -394,6 +425,24 @@ class Runtime:
         self.last_sample = 0.0
         self.last_error = False
         self.stop_event = threading.Event()
+
+    def readiness(self):
+        missing = sorted(self.required_dimensions - set(self.hub.last_provenance)) if not self.demo else []
+        reasons = []
+        if self.assessment is None:
+            reasons.append("no_assessment")
+        if self.engine.is_calibrating:
+            reasons.append("calibrating")
+        if self.last_error:
+            reasons.append("sampling_failed")
+        if time.monotonic() - self.last_sample >= self.interval * 3:
+            reasons.append("stale_sample")
+        if self.responses and self.responses.last_error:
+            reasons.append("response_recovery_failed")
+        if missing:
+            reasons.append("missing_required_telemetry")
+        return {"ready": not reasons, "mode": self.mode, "reasons": reasons,
+                "missing_dimensions": missing, "skipped_adapters": self.hub.last_skipped}
 
     def publish(self, assessment):
         self.tick = self.engine.get_dashboard()["tick"]
@@ -416,7 +465,7 @@ class Runtime:
 
 class ControlPlaneServer:
     """Local-first monitoring service; remote binds require bearer authentication."""
-    def __init__(self, host="127.0.0.1", port=8080, *, demo=False, api_token=None, interval=1.0, allowed_pids=(), audit_path=None, max_hold_seconds=30):
+    def __init__(self, host="127.0.0.1", port=8080, *, demo=False, api_token=None, interval=1.0, allowed_pids=(), audit_path=None, max_hold_seconds=30, required_dimensions=None):
         api_token = api_token or os.environ.get("H11_API_TOKEN")
         if host not in {"127.0.0.1", "localhost", "::1"} and not api_token:
             raise ValueError("Remote binding requires H11_API_TOKEN")
@@ -425,13 +474,14 @@ class ControlPlaneServer:
         if not math.isfinite(interval) or interval < 0.05:
             raise ValueError("Sampling interval must be at least 0.05 seconds")
         self.host, self.port = host, port
+        self.runtime = Runtime(demo, api_token, interval, required_dimensions=required_dimensions)
         controller = None
         if allowed_pids:
             if demo or not api_token or not audit_path:
                 raise ValueError("Real response requires monitor mode, an API token, and a durable audit path")
             from h11_cga.response import ProcessResponseController
             controller = ProcessResponseController(allowed_pids, audit_path, max_hold_seconds)
-        self.runtime = Runtime(demo, api_token, interval, controller)
+        self.runtime.responses = controller
         self._server = None
         self._worker = None
 
@@ -439,11 +489,28 @@ class ControlPlaneServer:
         self._server = ThreadedHTTPServer((self.host, self.port), ControlPlaneHTTPHandler)
         self.port = self._server.server_address[1]
         self._server.runtime = self.runtime
-        self.runtime.sample()
-        self._worker = threading.Thread(target=self.runtime.run, daemon=True)
-        self._worker.start()
-        logger.info("Control plane listening on %s:%s (%s)", self.host, self.port, self.runtime.mode)
+        hostnames = {self.host.lower()}
+        if self.host in {"127.0.0.1", "localhost", "::1"}:
+            hostnames.update({"127.0.0.1", "localhost", "::1"})
+        self._server.allowed_hosts = {
+            ("[" + name + "]" if ":" in name else name) + ":" + str(self.port)
+            for name in hostnames
+        }
+        if self.port == 80:
+            self._server.allowed_hosts.update(hostnames)
+        public_origin = os.environ.get("H11_PUBLIC_ORIGIN")
+        self._server.allowed_origins = {"http://" + host for host in self._server.allowed_hosts}
         try:
+            if public_origin:
+                parsed = urlsplit(public_origin)
+                if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
+                    raise ValueError("H11_PUBLIC_ORIGIN must be an HTTP(S) origin without a path")
+                self._server.allowed_hosts.add(parsed.netloc.lower())
+                self._server.allowed_origins.add(public_origin)
+            self.runtime.sample()
+            self._worker = threading.Thread(target=self.runtime.run, daemon=True)
+            self._worker.start()
+            logger.info("Control plane listening on %s:%s (%s)", self.host, self.port, self.runtime.mode)
             self._server.serve_forever()
         finally:
             self.runtime.stop_event.set()
