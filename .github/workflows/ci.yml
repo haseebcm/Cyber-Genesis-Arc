@@ -22,3 +22,13 @@ jobs:
       - run: python -m build
       - run: python -m pip install --force-reinstall --no-deps dist/*.whl
       - run: cd "$(mktemp -d)" && python -c "from importlib.resources import files; assert files('h11_cga.server').joinpath('static/dashboard.html').is_file()"
+      - name: Windows acceptance with no skipped tests
+        if: matrix.os == 'windows-latest' && matrix.python == '3.12'
+        run: python tools/windows_acceptance.py
+      - name: Upload Windows acceptance evidence
+        if: always() && matrix.os == 'windows-latest' && matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-acceptance
+          path: acceptance-results/
+          if-no-files-found: error

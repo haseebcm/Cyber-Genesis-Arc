@@ -150,7 +150,17 @@ class LogAdapter(BaseTelemetryAdapter):
         impact = np.zeros(NUM_DIMENSIONS)
         target_dims = []
 
-        if status in ("failed", "denied", "unauthorized", "403", "401"):
+        # CloudTrail schema: a denied API call is an authorization signal,
+        # not proof of compromise or an incident label. Preserve its raw evidence.
+        cloudtrail_denial = (
+            data.get("eventSource", "").endswith(".amazonaws.com")
+            if isinstance(data.get("eventSource", ""), str) else False
+        ) and isinstance(data.get("errorCode"), str) and data.get("errorCode") in {"AccessDenied", "AccessDeniedException", "UnauthorizedOperation"}
+        if cloudtrail_denial:
+            impact[1] = -0.3
+            target_dims = [1]
+            event_type = "cloudtrail_authorization_denied"
+        elif status in ("failed", "denied", "unauthorized", "403", "401"):
             impact[1] = -0.3  # Authorization
             impact[8] = -0.2  # Trust
             target_dims = [1, 8]

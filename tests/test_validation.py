@@ -38,3 +38,13 @@ def test_log_overload_is_bounded_and_visible():
     assert adapter.dropped_events == 3
     assert len(adapter.collect().events) == 2
     assert not adapter.collect().events
+
+
+def test_cloudtrail_denials_are_authorization_evidence_only():
+    adapter = LogAdapter()
+    event = adapter.ingest_json_log({'eventSource':'iam.amazonaws.com','errorCode':'AccessDenied','eventName':'ListUsers'})
+    assert event.event_type == 'cloudtrail_authorization_denied'
+    assert event.target_dimensions == [1]
+    assert event.impact[1] < 0 and event.impact[8] == 0
+    assert adapter.ingest_json_log({'eventSource':'iam.amazonaws.com','eventName':'ListUsers'}) is None
+    assert adapter.ingest_json_log({'eventSource':[], 'errorCode':[]}) is None
